@@ -1,0 +1,24 @@
+# Core numerics
+numpy>=1.26,<3
+scipy>=1.11
+
+# Video I/O and image processing (frame extraction, retina sampling)
+opencv-python>=4.8
+
+# 3D scientific visualization
+pyvista>=0.43
+
+# Graph utilities (used incidentally for connectome analysis/tests;
+# the simulation itself uses scipy.sparse directly for performance)
+networkx>=3.2
+
+# CSV/tabular handling for real connectome data (data/connectome_loader.py)
+pandas>=2.0
+
+# Testing
+pytest>=7.4
+
+# --- Optional, for CONNECTOME mode with real data -------------------------
+# neuprint-python        # pip install this yourself if pulling hemibrain data
+#                         # via https://neuprint.janelia.org (see
+#                         # data/connectome_loader.py for usage)

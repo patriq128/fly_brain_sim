@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Generated/local artifacts - not source
+data/sample/synthetic_demo.mp4
+data/sample/*.png
+*.mp4
+!data/sample/make_sample_video.py
+
+# Real connectome data you supply locally (large, licensed - don't commit)
+data/*/neurons.csv
+data/*/edges.csv
