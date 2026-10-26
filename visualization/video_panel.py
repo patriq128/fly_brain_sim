@@ -14,16 +14,31 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from visualization.emotion_chart import CHART_HEIGHT, render_emotion_chart
+
 
 class VideoPanel:
     def __init__(self, window_name: str = "Fly Visual Input", width: int = 480):
         self.window_name = window_name
         self.width = width
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.window_name, width, int(width * 0.75) + 160)
+        # Video + retina grid + footer + emotion chart; extra room so the
+        # window does not have to scale the stacked image down.
+        cv2.resizeWindow(
+            self.window_name, width, int(width * 0.75) + 160 + 70 + CHART_HEIGHT + 20
+        )
         cv2.moveWindow(self.window_name, 20, 20)
 
-    def show(self, frame_bgr: np.ndarray, retina_grid: np.ndarray | None, overlay_text: str):
+    def show(
+        self,
+        frame_bgr: np.ndarray,
+        retina_grid: np.ndarray | None,
+        overlay_text: str,
+        *,
+        emotion_mix: dict[str, float] | None = None,
+        emotion_frames: int = 0,
+        current_mood: str | None = None,
+    ):
         h, w = frame_bgr.shape[:2]
         scale = self.width / w
         disp = cv2.resize(frame_bgr, (self.width, int(h * scale)))
@@ -59,6 +74,18 @@ class VideoPanel:
                 cv2.LINE_AA,
             )
         disp = np.vstack([disp, footer])
+        if emotion_mix is not None:
+            disp = np.vstack(
+                [
+                    disp,
+                    render_emotion_chart(
+                        self.width,
+                        emotion_mix,
+                        frames=emotion_frames,
+                        current_mood=current_mood,
+                    ),
+                ]
+            )
 
         cv2.imshow(self.window_name, disp)
 

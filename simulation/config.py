@@ -8,25 +8,29 @@ Defines the three simulation "levels" described in the project README:
     DETAILED    - larger synthetic network with more columns / cell types,
                   still procedurally generated but denser and closer in
                   proportion to published cell-type counts.
-    CONNECTOME  - structured to accept a real connectivity matrix exported
-                  from a connectome database (FlyWire / hemibrain via
-                  neuprint-python or the FlyWire "codex" CSV export). This
-                  repository does NOT bundle real connectome data (it is
-                  tens of millions of rows and access is governed by the
-                  FlyWire/Janelia data licenses) - `data/connectome_loader.py`
-                  documents exactly how to plug it in.
+    CONNECTOME  - uses a real measured connectivity matrix. The default path
+                  auto-downloads and streams the public FlyWire FAFB v783
+                  wiring diagram + annotations (`data/flywire_source.py`),
+                  so no account/token or manual export is required. A
+                  user-supplied neurons.csv/edges.csv export (e.g. hemibrain
+                  via neuprint-python) can be used instead with
+                  `--connectome-path`. Source files are cached under the
+                  git-ignored `data/real/` directory; nothing large is
+                  bundled in the repository.
 
 IMPORTANT - HONESTY ABOUT WHAT IS AND ISN'T "REAL" DATA
 --------------------------------------------------------
-Only CONNECTOME mode, when pointed at a real exported adjacency file, uses
-actual measured connectivity. DEMO and DETAILED modes use a *procedurally
-generated* graph whose region sizes, layer ordering and broad connection
-motifs are *inspired by* published descriptions of the fly optic lobe and
-central brain (retinotopic feedforward pathway, lateral inhibition, few
-long-range "wide-field" neurons) but the specific neuron count, weights and
-wiring are NOT taken from any dataset. This is stated in the UI and README
-as well - see docs/SIMULATION_NOTES.md for the full biology/assumption
-breakdown.
+CONNECTOME mode uses measured connectivity (FlyWire, or your export).
+DEMO and DETAILED modes use a *procedurally generated* graph whose region
+sizes, layer ordering and broad connection motifs are *inspired by*
+published descriptions of the fly optic lobe and central brain (retinotopic
+feedforward pathway, lateral inhibition, few long-range "wide-field"
+neurons) but the specific neuron count, weights and wiring are NOT taken
+from any dataset. Even in CONNECTOME mode, the weight compression, subset
+selection and leaky-rate dynamics are project-specific SIMULATION/
+ASSUMPTION choices, not measured physiology. This is stated in the UI and
+README as well - see docs/SIMULATION_NOTES.md for the full
+biology/assumption breakdown.
 """
 
 from __future__ import annotations
@@ -153,10 +157,28 @@ class SimulationConfig:
     region_sizes: RegionSizes = field(default_factory=lambda: REGION_SIZES[SimLevel.DEMO])
     dynamics: NeuronDynamicsParams = field(default_factory=NeuronDynamicsParams)
     retina_grid_shape: tuple[int, int] = (16, 16)   # rows x cols hex-ish sampling grid
-    connectome_path: str | None = None              # required for CONNECTOME level
+    connectome_path: str | None = None              # local CSV export for CONNECTOME level
     video_target_fps: float = 15.0                  # frames/sec fed to the sim
     steps_per_video_frame: int = 3                  # brain integration sub-steps per frame
     random_seed: int = 0
+
+    # --- Real-connectome (CONNECTOME level) options ---------------------
+    # "csv"     : load a user-supplied neurons.csv/edges.csv export
+    # "flywire" : auto-download + stream the public FlyWire FAFB v783 graph
+    # None      : infer ("csv" if connectome_path else "flywire")
+    connectome_source: str | None = None
+    connectome_cache_dir: str | None = None
+    # 0 = whole brain (139,255 neurons); None = source-specific default
+    # (20,000 for the interactive FlyWire subset).
+    max_neurons: int | None = None
+    # Minimum summed synapses per directed pair; None = source-specific
+    # default (1 for a subset, 5 for the whole brain).
+    min_synapses: int | None = None
+    allow_connectome_download: bool = True
+    rebuild_connectome: bool = False
+    # Inject the HRC direction maps into real T4/T5 subtypes (and the
+    # synthetic medulla stage).  Disable for a pure connectome-driven run.
+    motion_injection: bool = True
 
     @staticmethod
     def for_level(level: SimLevel, connectome_path: str | None = None) -> "SimulationConfig":
@@ -166,9 +188,13 @@ class SimulationConfig:
             SimLevel.DETAILED: (32, 48),
             SimLevel.CONNECTOME: (32, 48),
         }[level]
+        source = None
+        if level == SimLevel.CONNECTOME:
+            source = "csv" if connectome_path else "flywire"
         return SimulationConfig(
             level=level,
             region_sizes=sizes,
             retina_grid_shape=grid,
             connectome_path=connectome_path,
+            connectome_source=source,
         )

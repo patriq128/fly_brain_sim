@@ -158,6 +158,25 @@ REGIONS: dict[str, RegionInfo] = {
         anchor_right=(0.9, 0.5, 0.6),
         color="#3d348b",
     ),
+    # Only present in real-connectome (FlyWire) mode: neurons whose published
+    # cell class is outside the seven coarse regions above (olfactory,
+    # mechanosensory, ascending/descending, etc.).  Kept so the whole-brain
+    # graph is complete rather than silently dropping a third of the brain.
+    "other": RegionInfo(
+        key="other",
+        display_name="Other central brain",
+        description=(
+            "CONNECTOME: real FlyWire neurons not assigned to one of the "
+            "seven visual/central regions this project models (olfactory, "
+            "mechanosensory, ascending/descending, unclassified). They are "
+            "included in whole-brain mode but receive no targeted visual "
+            "drive."
+        ),
+        evidence=Evidence.CONNECTOME,
+        anchor_left=(0.0, -0.4, -0.3),
+        anchor_right=(0.0, -0.4, -0.3),
+        color="#7a7a7a",
+    ),
 }
 
 # ASSUMPTION: This project only implements one downstream "decision" style
@@ -174,3 +193,7 @@ REGION_ORDER = [
     "central_complex",
     "mushroom_body",
 ]
+
+# Region key used for real-connectome neurons outside REGION_ORDER.  It is
+# deliberately not part of REGION_ORDER: synthetic graphs have no such bucket.
+OTHER_REGION = "other"

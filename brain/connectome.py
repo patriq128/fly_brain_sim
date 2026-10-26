@@ -27,13 +27,21 @@ Two sources are supported:
        mirrors the qualitative textbook picture of lateral inhibition in
        the lamina/medulla but is not derived from real synapse counts.
 
-2. `load_real_connectome(path)`  (used by CONNECTOME level)
-   Loads a real, user-supplied adjacency edge list (e.g. exported from
-   neuprint-python for the hemibrain, or from the FlyWire "codex" /
-   flywire_annotations connectivity export) in a simple CSV schema.
-   This repository does not (and cannot license-wise) bundle that data.
-   See data/connectome_loader.py for the exact expected schema and
-   download instructions.
+2. Real connectome (`CONNECTOME` level)
+   Two paths produce the same `ConnectomeGraph`:
+     - `data/flywire_source.build_flywire_connectome(...)` downloads/streams
+       the public FlyWire FAFB v783 wiring diagram and its annotations. This
+       is the default `--level connectome` path and needs no account/token.
+     - `load_real_connectome(path)` loads a user-supplied
+       neurons.csv/edges.csv export (e.g. hemibrain via neuprint-python).
+   Real-data neuron ids, cell types, predicted neurotransmitters, soma
+   coordinates and synapse counts are measured. The weight compression,
+   sign handling, subset selection and rate dynamics are labeled as
+   SIMULATION/ASSUMPTION in data/flywire_source.py and
+   docs/SIMULATION_NOTES.md.
+   This repository does not bundle the source data; the FlyWire files are
+   downloaded into the git-ignored `data/real/` cache on first use.
+   See data/connectome_loader.py for the CSV schema.
 """
 
 from __future__ import annotations
@@ -55,11 +63,28 @@ class ConnectomeGraph:
     region_slices: dict[str, slice]       # region_key -> slice into neuron index space
     positions: np.ndarray                 # (n_neurons, 3) float32 layout for 3D viz
     column_of: np.ndarray                 # (n_neurons,) int retinotopic column id (-1 if n/a)
-    source: str                           # "synthetic" or path to real data
+    source: str                           # "synthetic", "flywire_fafb783", or a CSV path
     level: str
+    # --- Optional metadata present only for real connectomes ---------------
+    # These default to None so every existing synthetic/CSV call site keeps
+    # working unchanged.
+    neuron_ids: np.ndarray | None = None   # (n_neurons,) original dataset ids (FlyWire root ids)
+    cell_type_of: np.ndarray | None = None # (n_neurons,) published cell type, "" if unknown
+    nt_of: np.ndarray | None = None        # (n_neurons,) predicted neurotransmitter
+    sign_of: np.ndarray | None = None      # (n_neurons,) effective pre-synaptic sign used
 
     def region_activity_mask(self, region_key: str) -> slice:
         return self.region_slices[region_key]
+
+    def label_for(self, index: int) -> str:
+        """Human-readable label for a neuron index (cell type when known)."""
+        if self.cell_type_of is not None:
+            cell_type = str(self.cell_type_of[index])
+            if cell_type:
+                return cell_type
+        if self.neuron_ids is not None:
+            return str(self.neuron_ids[index])
+        return str(index)
 
 
 def _hex_grid_positions(rows: int, cols: int, side: str) -> tuple[np.ndarray, np.ndarray]:

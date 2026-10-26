@@ -35,7 +35,7 @@ import numpy as np
 import pyvista as pv
 
 from brain.connectome import ConnectomeGraph
-from brain.regions import REGION_ORDER, REGIONS
+from brain.regions import OTHER_REGION, REGION_ORDER, REGIONS
 
 MAX_EDGES_DRAWN = 6000
 
@@ -54,8 +54,19 @@ class Brain3DView:
         self.stats_actor = self.plotter.add_text(
             "", position="upper_left", font_size=10, color="white", name="stats_text"
         )
+        # Prominent, playful "what is it feeling?" label.  Driven by the
+        # illustrative activity projection in brain/fly_state.py, not by any
+        # claim of real experience (the stats block says so explicitly).
+        self.mood_actor = self.plotter.add_text(
+            "", position="lower_left", font_size=16, color="#ffe066", name="mood_text"
+        )
+        title = (
+            "Simulated Drosophila Brain - Visual Pathway Activity"
+            if graph.source == "synthetic"
+            else "FlyWire FAFB v783 - Real Connectome Activity"
+        )
         self.title_actor = self.plotter.add_text(
-            "Simulated Drosophila Brain - Visual Pathway Activity",
+            title,
             position="upper_right",
             font_size=10,
             color="#aad9ff",
@@ -67,28 +78,36 @@ class Brain3DView:
         pts = self.graph.positions
         self.point_cloud = pv.PolyData(pts)
 
+        region_keys = list(REGION_ORDER)
+        if OTHER_REGION in self.graph.region_slices:
+            region_keys.append(OTHER_REGION)
         base_colors = np.zeros((self.graph.n_neurons, 3), dtype=np.float32)
-        for r in REGION_ORDER:
+        for r in region_keys:
             sl = self.graph.region_slices.get(r)
             if sl is None:
                 continue
             hexcolor = REGIONS[r].color.lstrip("#")
             rgb = np.array([int(hexcolor[i : i + 2], 16) for i in (0, 2, 4)], dtype=np.float32) / 255.0
             base_colors[sl] = rgb
-        # neurons without a known region (real-data 'other' bucket)
-        unknown = np.array([r not in REGION_ORDER for r in self.graph.region_of])
+        # neurons without a known region (defensive; real data uses 'other')
+        unknown = np.array([r not in region_keys for r in self.graph.region_of])
         base_colors[unknown] = np.array([0.5, 0.5, 0.5])
 
         self._base_colors = base_colors
         self.point_cloud["activity"] = np.zeros(self.graph.n_neurons, dtype=np.float32)
         self.point_cloud["rgb"] = (base_colors * 255).astype(np.uint8)
 
+        # Whole-brain mode has 139k points; sphere shading and large points
+        # are too expensive, so scale the rendering down with graph size.
+        n = self.graph.n_neurons
+        point_size = 6.0 if n <= 30_000 else 3.0
+        spheres = n <= 60_000
         self.points_actor = self.plotter.add_mesh(
             self.point_cloud,
             scalars="rgb",
             rgb=True,
-            point_size=6.0,
-            render_points_as_spheres=True,
+            point_size=point_size,
+            render_points_as_spheres=spheres,
             name="neurons",
         )
 
@@ -132,20 +151,29 @@ class Brain3DView:
         self._edge_dst = dst
 
     def _build_region_labels(self):
-        for r in REGION_ORDER:
+        region_keys = list(REGION_ORDER)
+        if OTHER_REGION in self.graph.region_slices:
+            region_keys.append(OTHER_REGION)
+        for r in region_keys:
             sl = self.graph.region_slices.get(r)
             if sl is None or sl.stop <= sl.start:
                 continue
             info = REGIONS[r]
-            for anchor in (info.anchor_left, info.anchor_right):
+            if self.graph.source == "synthetic":
+                anchors = [info.anchor_left, info.anchor_right]
+            else:
+                # Real soma coordinates: label at the region centroid rather
+                # than at the schematic anchors from brain/regions.py.
+                anchors = [self.graph.positions[sl].mean(axis=0)]
+            for i, anchor in enumerate(anchors):
                 self.plotter.add_point_labels(
-                    [anchor],
+                    [np.asarray(anchor, dtype=np.float32)],
                     [info.display_name],
                     font_size=9,
                     text_color="#dddddd",
                     shape=None,
                     always_visible=True,
-                    name=f"label_{r}_{anchor[0]}",
+                    name=f"label_{r}_{i}",
                 )
 
     def _set_default_camera(self):
@@ -160,7 +188,7 @@ class Brain3DView:
         self.plotter.camera.zoom(1.3)
 
     # -- per-frame update -------------------------------------------------
-    def update(self, activity: np.ndarray, stats_text: str):
+    def update(self, activity: np.ndarray, stats_text: str, mood_text: str = ""):
         highlight = np.clip(activity, 0, 1)[:, None]
         bright = self._base_colors * (0.25 + 0.75 * (1 - highlight)) + np.array(
             [1.0, 0.85, 0.3]
@@ -178,6 +206,9 @@ class Brain3DView:
 
         self.plotter.add_text(
             stats_text, position="upper_left", font_size=10, color="white", name="stats_text"
+        )
+        self.plotter.add_text(
+            mood_text, position="lower_left", font_size=16, color="#ffe066", name="mood_text"
         )
 
     def render(self):

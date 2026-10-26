@@ -15,6 +15,10 @@ networkx>=3.2
 # CSV/tabular handling for real connectome data (data/connectome_loader.py)
 pandas>=2.0
 
+# Streaming the Feather-format FlyWire connectivity file
+# (data/flywire_source.py, real connectome mode)
+pyarrow>=15
+
 # Testing
 pytest>=7.4
 

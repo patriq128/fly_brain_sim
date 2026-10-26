@@ -46,8 +46,10 @@ Expected input schema
 ----------------------
 Two CSV files, both referenced by `path` (a directory):
 
-    <path>/neurons.csv   columns: id, type (optional), region (optional)
-    <path>/edges.csv     columns: src, dst, weight
+    <path>/neurons.csv   columns: id, type/cell_type (optional),
+                                 region (optional), neurotransmitter/nt (optional)
+    <path>/edges.csv     columns: src, dst, weight,
+                                 sign or neurotransmitter (optional)
 
 `region` should, if present, use one of this project's region keys
 (retina, lamina, medulla, lobula, lobula_plate, central_complex,
@@ -55,12 +57,19 @@ mushroom_body) or "other" - see brain/regions.py. If `region` is absent,
 every neuron is placed in a single "other" bucket and the visualization/
 simulation still runs, just without the region breakdown.
 
-If real synapse counts are used as weights, they are treated as unsigned
-excitatory synapse counts (SIMULATION/ASSUMPTION: true fly synapses are
-polyadic and can be excitatory or inhibitory depending on neurotransmitter,
-which most simple connectome exports do not disambiguate - if your export
-includes a sign/neurotransmitter column, extend `_infer_sign` below rather
-than assuming everything is excitatory).
+Signs
+-----
+If `edges.csv` has a numeric `sign` column (+1/-1), it is used. Otherwise, if
+it has a `neurotransmitter`/`nt` column, or `neurons.csv` has one, the
+transmitter is mapped to an effective sign: acetylcholine +1; GABA,
+glutamate and histamine -1; dopamine/serotonin/octopamine +0.25. Without any
+of these columns all weights are treated as excitatory (the original
+behaviour). See `_infer_sign` and `SIGN_BY_NT` below.
+
+Note that `--connectome-source flywire` (data/flywire_source.py) now provides
+a fully automatic, no-token path to the real FAFB v783 connectome and is the
+recommended way to run real data. This CSV loader remains useful for
+hemibrain exports and custom datasets.
 """
 
 from __future__ import annotations
@@ -79,17 +88,43 @@ KNOWN_REGIONS = {
     "lobula_plate",
     "central_complex",
     "mushroom_body",
+    "other",
+}
+
+# Predicted/known transmitter -> effective sign for the rate model.  Same
+# convention as data/flywire_source.py (kept local to avoid pulling pyarrow
+# into the CSV-only path).
+SIGN_BY_NT = {
+    "acetylcholine": 1.0,
+    "gaba": -1.0,
+    "glutamate": -1.0,
+    "histamine": -1.0,
+    "glycine": -1.0,
+    "dopamine": 0.25,
+    "serotonin": 0.25,
+    "octopamine": 0.25,
 }
 
 
-def _infer_sign(weight: float) -> float:
-    # ASSUMPTION: without neurotransmitter annotation, treat all measured
-    # synapse-count weights as excitatory. Real inhibitory neurotransmitters
-    # (e.g. GABA, glutamate at inhibitory receptors) are common in the fly
-    # optic lobe; if your CSV has a `sign` or `neurotransmitter` column,
-    # multiply weight by -1 for inhibitory rows before calling this loader,
-    # or extend this function.
-    return weight
+def _sign_for_nt(nt: object) -> float | None:
+    if nt is None or (isinstance(nt, float) and np.isnan(nt)):
+        return None
+    key = str(nt).split(",")[0].strip().lower()
+    replacements = {"hist": "histamine", "5-ht": "serotonin", "5ht": "serotonin"}
+    key = replacements.get(key, key)
+    return SIGN_BY_NT.get(key)
+
+
+def _infer_sign(weight: float, sign: object = None, nt: object = None) -> float:
+    """Apply an optional edge sign / transmitter to a measured weight.
+
+    ASSUMPTION: without any sign/neurotransmitter annotation, treat all
+    measured synapse-count weights as excitatory.
+    """
+    if sign is not None and not (isinstance(sign, float) and np.isnan(sign)):
+        return weight * float(sign)
+    mapped = _sign_for_nt(nt)
+    return weight * (mapped if mapped is not None else 1.0)
 
 
 def load_edge_list(path: str, config):
@@ -121,9 +156,54 @@ def load_edge_list(path: str, config):
     else:
         region_of = np.array(["other"] * n, dtype=object)
 
+    # Optional per-neuron metadata from the export.
+    cell_type_col = next(
+        (c for c in ("cell_type", "type") if c in neurons.columns), None
+    )
+    cell_type_of = (
+        neurons[cell_type_col].fillna("").astype(str).to_numpy(dtype=object)
+        if cell_type_col
+        else np.array([""] * n, dtype=object)
+    )
+    neuron_nt_col = next(
+        (c for c in ("neurotransmitter", "nt", "top_nt") if c in neurons.columns), None
+    )
+    nt_of = (
+        neurons[neuron_nt_col].fillna("").astype(str).to_numpy(dtype=object)
+        if neuron_nt_col
+        else np.array([""] * n, dtype=object)
+    )
+    if neuron_nt_col:
+        neuron_sign = np.array(
+            [
+                (s if (s := _sign_for_nt(x)) is not None else 1.0)
+                for x in nt_of
+            ],
+            dtype=np.float32,
+        )
+    else:
+        neuron_sign = None
+
+    edge_sign_col = "sign" if "sign" in edges.columns else None
+    edge_nt_col = next(
+        (c for c in ("neurotransmitter", "nt", "top_nt") if c in edges.columns), None
+    )
+    edge_signs = (
+        edges[edge_sign_col].to_numpy(dtype=object)
+        if edge_sign_col is not None
+        else [None] * len(edges)
+    )
+    edge_nts = (
+        edges[edge_nt_col].to_numpy(dtype=object)
+        if edge_nt_col is not None
+        else [None] * len(edges)
+    )
+
     rows, cols, vals = [], [], []
     missing = 0
-    for src, dst, w in zip(edges["src"], edges["dst"], edges["weight"]):
+    for src, dst, w, edge_sign, edge_nt in zip(
+        edges["src"], edges["dst"], edges["weight"], edge_signs, edge_nts
+    ):
         si = id_to_idx.get(src)
         di = id_to_idx.get(dst)
         if si is None or di is None:
@@ -131,7 +211,14 @@ def load_edge_list(path: str, config):
             continue
         rows.append(si)
         cols.append(di)
-        vals.append(_infer_sign(float(w)))
+        if edge_sign is not None:
+            vals.append(_infer_sign(float(w), sign=edge_sign))
+        elif edge_nt is not None:
+            vals.append(_infer_sign(float(w), nt=edge_nt))
+        elif neuron_sign is not None:
+            vals.append(float(w) * float(neuron_sign[si]))
+        else:
+            vals.append(_infer_sign(float(w)))
     if missing:
         print(f"[connectome_loader] skipped {missing} edges referencing unknown neuron ids")
 
@@ -167,6 +254,10 @@ def load_edge_list(path: str, config):
         column_of=column_of,
         source=path,
         level=config.level.value,
+        neuron_ids=np.array([ids[i] for i in sort_idx], dtype=object),
+        cell_type_of=cell_type_of[sort_idx],
+        nt_of=nt_of[sort_idx],
+        sign_of=neuron_sign[sort_idx] if neuron_sign is not None else None,
     )
 
 

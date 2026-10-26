@@ -81,14 +81,30 @@ class FlyBrainApp:
                         level=self.engine.config.level.value,
                         n_neurons=n_neurons,
                         n_edges=n_edges,
+                        source=graph.source,
                     )
-                    self.brain3d.update(self.engine.brain.dynamics.activity, stats_text)
+                    mood_text = ""
+                    if result.stats.fly_state is not None:
+                        mood_text = f'Simulated fly mood: {result.stats.fly_state.mood}'
+                    self.brain3d.update(
+                        self.engine.brain.dynamics.activity,
+                        stats_text,
+                        mood_text=mood_text,
+                    )
 
                     if self.video_panel is not None:
+                        current_mood = (
+                            result.stats.fly_state.mood
+                            if result.stats.fly_state is not None
+                            else None
+                        )
                         self.video_panel.show(
                             result.frame_bgr,
                             self.engine.brain._last_luminance_grid,
                             stats_text,
+                            emotion_mix=result.stats.emotion_mix,
+                            emotion_frames=result.stats.emotion_mix_frames,
+                            current_mood=current_mood,
                         )
                         key = self.video_panel.poll_key()
                         if key in (ord("q"), 27):

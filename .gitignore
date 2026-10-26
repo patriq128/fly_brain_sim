@@ -14,3 +14,7 @@ data/sample/*.png
 # Real connectome data you supply locally (large, licensed - don't commit)
 data/*/neurons.csv
 data/*/edges.csv
+
+# Auto-downloaded real connectome files and built-graph caches (~880 MB)
+data/real/*
+!data/real/README.md

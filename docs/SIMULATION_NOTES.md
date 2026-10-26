@@ -59,12 +59,59 @@ reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
   nonlinear synapses; this is a deliberate reduction to the minimal
   correlator model, not a reproduction of the full circuit.
 
-### Connectome / wiring (`brain/connectome.py`, `data/connectome_loader.py`)
-- **CONNECTOME (real, when used)**: `--level connectome` loads a real
-  edge list you export yourself from neuPrint (hemibrain) or FlyWire (see
-  `data/connectome_loader.py` for exact instructions and CSV schema). When
-  used, neuron counts, connectivity, and (if you supply it) region labels
-  come directly from that data.
+### Connectome / wiring (`brain/connectome.py`, `data/flywire_source.py`, `data/connectome_loader.py`)
+- **CONNECTOME (real, default FlyWire path)**: `--level connectome` with
+  `--connectome-source flywire` (the default when no `--connectome-path` is
+  given) downloads and verifies the public FlyWire FAFB v783 proofread
+  connectivity table (852 MB, ~16.85 M `(pre, post, neuropil)` synapse-count
+  rows; Zenodo `10.5281/zenodo.10676866`) and the Schlegel et al. 2024
+  annotation table (27 MB, 139,255 neurons; Nature supplementary data). The
+  following are **measured data**: neuron root ids, cell types, soma
+  coordinates, synapse counts per directed pair, and predicted/known
+  neurotransmitter. The default interactive graph is a ~20,000-neuron subset;
+  `--max-neurons 0` builds the whole 139,255-neuron brain (~2.70 M weighted
+  edges at the published ≥5-synapse threshold). Source files are cached under
+  the git-ignored `data/real/` directory.
+- **CONNECTOME (real, CSV path)**: `--connectome-path` loads a
+  `neurons.csv`/`edges.csv` export you supply (e.g. hemibrain via
+  neuprint-python), documented in `data/connectome_loader.py`. Neuron ids,
+  edges, optional regions/cell types/transmitters are then measured from
+  that export.
+- **SIMULATION/ASSUMPTION in the real-connectome path** (all called out in
+  `data/flywire_source.py`):
+  - The ~180+ published cell classes are collapsed into seven coarse regions
+    plus an `other` bucket; T4/T5 are assigned to `lobula_plate` because that
+    is where their axons terminate and the motion readout lives.
+  - Per-neuron transmitter is mapped to an effective sign (ACh +1; GABA,
+    glutamate, histamine, glycine −1; dopamine/serotonin/octopamine +0.25).
+    Biologically, photoreceptors release inhibitory histamine; here their
+    output is **forced excitatory** because the retina model emits a
+    contrast/luminance drive rather than a histamine release rate. Without
+    that override a bright frame would silence the pathway in this rate-model
+    abstraction.
+  - Synapse counts are compressed with `log1p`, and each neuron's total
+    absolute incoming weight is capped (`DEFAULT_WEIGHT_TARGET = 1.5`) so a
+    few huge fan-in neurons do not saturate the generic rate model.
+  - The ~20k subset is chosen by whole retinotopic tiles rather than random
+    neurons, to preserve local columnar circuits. This is a display/compute
+    budget choice, not a biological claim.
+  - External visual drive is injected only into identified photoreceptors
+    (R1-6 get the achromatic channel, R7/R8 the chroma proxy), plus
+    optionally the four T4/T5 subtype maps from the HRC. Every other region
+    is driven solely through the measured synapses. **ASSUMPTION**: the
+    video's +x axis is identified with T4/T5 subtype `a` (front-to-back in
+    the real fly; Maisak et al. 2013) and its four cardinal directions are
+    assigned as a/b/c/d = right/left/up/down. The absolute azimuth is
+    arbitrary for a camera video. `--no-motion-injection` disables the
+    T4/T5 drive and leaves the connectome dynamics to propagate the
+    photoreceptor signal alone.
+  - Soma coordinates are converted from FAFB voxels to a physically
+    proportioned scene and centered; optic-lobe soma position in the
+    (anterior-posterior, dorsal-ventral) plane is used as a coarse proxy for
+    visual-field position (the retinotopic column map). The fly optic lobe is
+    genuinely retinotopic, but this particular mapping is not a measured
+    retinotopic atlas.
+  - The leaky-rate dynamics are the same generic model as every other level.
 - **CONNECTOME-inspired, not real (DEMO/DETAILED default)**: neuron
   counts per region are chosen to be proportionally plausible (the optic
   lobes dominate total neuron count, matching the qualitative fact that a
@@ -84,6 +131,16 @@ reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
   quantitatively - it is just there so the demo doesn't saturate to 100%
   activity immediately.
 
+### Real-data provenance and licensing (`data/real/`)
+- The FlyWire connectivity table and Schlegel et al. annotations are
+  **CC-BY-4.0**. They are downloaded on first use and verified against the
+  published size and checksum (MD5/SHA-256); `PROVENANCE.json` records the
+  exact URL, DOI, size, checksum and fetch time. Nothing large is committed
+  to this repository.
+- If you publish results derived from this data, cite Dorkenwald et al. 2024
+  and Schlegel et al. 2024 (also Eckstein, Bates et al. 2024 for the
+  neurotransmitter predictions). See `data/real/README.md` and §4 below.
+
 ### Neuron dynamics (`brain/neuron_model.py`)
 - **SIMULATION**: a standard leaky-rate neuron, `tau*dV/dt = -V + input`,
   with a sigmoid activation. This produces smooth, interpretable
@@ -93,6 +150,37 @@ reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
   illustrative linear rescaling of this activity value into 0-200 Hz, not
   a measured or calibrated rate - this is stated directly in the on-screen
   stats text.
+
+### Simulated "feeling" readout (`brain/fly_state.py`)
+- **SIMULATION/ASSUMPTION**: the stats overlay grows a playful
+  "what is the fly feeling?" block from the same region activity. It
+  computes five fixed axes:
+  - `arousal`: weighted overall active fraction + mean region activity.
+  - `salience`: optic-lobe activity plus motion energy.
+  - `escape` ("fear"): lobula-plate activity plus motion energy. The
+    lobula plate is where the real T4/T5 motion pathway terminates and
+    optomotor/escape responses are read out.
+  - `curiosity`: central-complex + mushroom-body activity. Those are the
+    real navigation and learning/memory centres, but mapping their generic
+    simulated activity to a word like "curiosity" is the project's
+    invention.
+  - `valence`: `curiosity - escape`, an approach/avoid-style axis.
+  A fixed rule set turns the axes into one of `Calm`, `Settled`,
+  `Curious`, `Alert`, `Wary`, `Startled`, or `Overwhelmed`. The reference
+  scales and thresholds are display calibration, not measured physiology.
+- **Emotion-mix graph**: the percentages shown in the stats overlay and in
+  the video panel's colored bar chart are a rolling histogram of those hard
+  labels over the last `EMOTION_WINDOW_FRAMES = 120` simulation frames. They
+  answer "what fraction of recent frames was classified as each label", not
+  "how strongly does the fly feel each emotion". The window is cleared on
+  restart. Highlighting the current label and the bar colors are display
+  choices.
+- **NOT CLAIMED**: a real fly is not known to have subjective feelings, and
+  this module does not model affect, emotion, interoception, homeostasis or
+  consciousness. It is a deterministic UI summary of simulated activity,
+  in the same category as the illustrative "firing rate (Hz)" number. The
+  overlay states this explicitly on screen ("ILLUSTRATIVE - not a real
+  experience").
 
 ### Higher brain regions: lobula, lobula plate, central complex, mushroom body
 - **BIOLOGY**: these are real, named neuropils with well-documented broad
@@ -125,40 +213,46 @@ reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
 |---|---|---|---|---|
 | `demo` | ~1,400 | ~12,000 | fully synthetic | interactive on a laptop CPU, ~300+ simulation ticks/sec measured headless in this repo's test environment |
 | `detailed` | ~15,000 | proportionally more (still capped by fan-in/fan-out limits in `brain/connectome.py`) | fully synthetic | still interactive; scipy sparse matrix-vector products keep the per-step cost roughly linear in edge count |
-| `connectome` | up to ~139,000 (full FlyWire) or ~25,000 (hemibrain) | up to ~16.5M (FlyWire) or ~20M (hemibrain) | real, user-supplied | **not recommended to load whole-brain, dense, real data for real-time interactive use** - see below |
+| `connectome` | ~20,800 default subset; 139,255 whole brain (FlyWire), or ~25,000 (hemibrain) | ~380,000 subset; 2,700,513 whole brain at ≥5 synapses (FlyWire), or ~20M (hemibrain) | real FlyWire FAFB v783 (auto-downloaded) or your CSV export | subset is interactive on a laptop; whole-brain mode is usable but slower, especially once rendered |
 
-**Why we do not attempt real-time simulation of the full connectome:**
-a dense recurrent step over the full FlyWire graph is a sparse
-matrix-vector product over ~16.5 million weighted edges, once per neural
-integration sub-step, on top of maintaining ~139k neuron state vectors and
-their history for visualization (points, colors, edge subsampling, etc.)
-every rendered frame. This is not impossible on capable hardware, but it
-is well outside what this project's default settings target ("runs on a
-normal computer", per the project spec). Recommended paths if you want to
-push toward `connectome` scale:
+**Why the full connectome is still a heavy target:** the raw FlyWire table
+has ~16.85 M `(pre, post, neuropil)` rows, which sum to ~2.70 M weighted
+directed edges at the published ≥5-synapse threshold over 139,255 neurons.
+A dense recurrent step is a sparse matrix-vector product over those edges,
+once per neural integration sub-step, on top of maintaining ~139k neuron
+state vectors and their history for visualization (points, colors, edge
+subsampling, etc.) every rendered frame. This is not impossible on capable
+hardware, but it is well outside what this project's default settings target
+("runs on a normal computer", per the project spec). For scale, on the
+development machine used for this project, the default 20,830-neuron /
+380,394-edge subset processed 10 video frames (3 sub-steps each) in ~0.15 s,
+and the whole 139,255-neuron / 2.70 M-edge graph took ~60 ms per frame before
+rendering; the 3D viewer, not the dynamics, is the bottleneck at that size.
+Recommended paths if you want to push toward `connectome` scale:
 
-1. **Restrict to a sub-circuit.** Use neuprint-python / FlyWire's
-   annotations to pull only the optic lobe + a handful of downstream ROIs
-   (as the example in `data/connectome_loader.py` does) rather than the
-   whole brain. This gets you real connectivity at a scale (thousands to
-   tens of thousands of neurons) close to this project's `detailed` mode.
-2. **Reduce the edges drawn in 3D, not the edges simulated.** The
+1. **Use the default subset, or choose its size.** `--max-neurons` selects
+   whole retinotopic tiles (keeping local columnar circuits intact) rather
+   than isolated neurons; `--max-neurons 0` is whole brain.
+2. **Restrict to a sub-circuit.** For your own CSV exports, use
+   neuprint-python / FlyWire's annotations to pull only the optic lobe + a
+   handful of downstream ROIs rather than the whole brain.
+3. **Reduce the edges drawn in 3D, not the edges simulated.** The
    simulation's sparse dynamics can handle far more edges than the 3D
    viewer should ever try to draw as individual lines;
    `visualization/brain3d.py` already subsamples to `MAX_EDGES_DRAWN`
    edges for rendering while `brain/neuron_model.py` simulates the full
    loaded graph - raise `MAX_EDGES_DRAWN` cautiously.
-3. **Lower `--sub-steps` and `--video-fps`.** Neural integration cost
+4. **Lower `--sub-steps` and `--video-fps`.** Neural integration cost
    scales with `steps_per_video_frame`; reducing this trades dynamical
    smoothness for speed.
-4. **Move to GPU.** `brain/neuron_model.py` only depends on `scipy.sparse`
+5. **Move to GPU.** `brain/neuron_model.py` only depends on `scipy.sparse`
    matrix-vector products and elementwise numpy ops - both have direct
    GPU-accelerated equivalents (e.g. `cupyx.scipy.sparse`, or reimplementing
    `LeakyRateNetwork` in PyTorch/JAX using its own sparse or dense
    representations, as flyvis does for the real visual-system-only
    connectome). This is the most promising path to true full-connectome,
-   real-time simulation and is the top suggestion in `README.md`'s future
-   work section.
+   real-time simulation and is one of the main suggestions in `README.md`'s
+   future work section.
 
 ## 4. Sources cited in this project
 
@@ -183,6 +277,14 @@ push toward `connectome` scale:
 - Shinomiya, K. et al. (2019). *Comparisons between the ON- and OFF-edge
   motion pathways in the Drosophila brain.* eLife. (connectomic
   confirmation of T4/T5 input structure)
+- Maisak, M.S. et al. (2013). *A directional tuning map from the
+  connectivity of Drosophila motion detector neurons.* Nature.
+  https://doi.org/10.1038/nature12320 (a/b/c/d subtype tuning and the
+  preferred-direction map referenced in `brain/network.py`)
+- Eckstein, N., Bates, A.S. et al. (2024). *Neurotransmitter classification
+  from electron microscopy images at synaptic sites in Drosophila
+  melanogaster.* Cell. (the predicted neurotransmitter labels distributed
+  with the FlyWire connectivity release)
 - Hardie, R.C. (1985) and Ready, Hanson & Benzer (1976) - classical
   Drosophila photoreceptor anatomy/physiology referenced in
   `vision/retina.py`.
