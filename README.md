@@ -272,12 +272,3 @@ Roughly in order of impact per effort, per the honesty framework in
    to make whole-connectome (`~139k` neuron) real-time simulation
    practical - see `docs/SIMULATION_NOTES.md §3` for specifics.
 
-## License
-
-Choose and add a license appropriate for your use (e.g. MIT/BSD for the
-code). The FlyWire FAFB v783 connectivity and Schlegel et al. annotations
-downloaded by `data/flywire_source.py` are **CC-BY-4.0** and carry their
-own attribution requirements; cite the source papers listed in
-`docs/SIMULATION_NOTES.md` if you publish results derived from real data.
-Any other real connectome data you load via `--connectome-path` also
-carries the license of its source (hemibrain is CC-BY).
