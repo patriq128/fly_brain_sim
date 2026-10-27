@@ -11,7 +11,7 @@ def test_demo_connectome_shapes():
     assert graph.adjacency.shape == (graph.n_neurons, graph.n_neurons)
     assert graph.positions.shape == (graph.n_neurons, 3)
     assert set(graph.region_slices.keys()) == {
-        "retina", "lamina", "medulla", "lobula", "lobula_plate",
+        "antenna", "retina", "lamina", "medulla", "lobula", "lobula_plate",
         "central_complex", "mushroom_body",
     }
 

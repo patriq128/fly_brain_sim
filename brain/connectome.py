@@ -140,6 +140,7 @@ def build_synthetic_connectome(config) -> ConnectomeGraph:
     n_columns = rows * cols
 
     region_counts = {
+        "antenna": sizes.antenna,
         "retina": sizes.retina,
         "lamina": sizes.lamina,
         "medulla": sizes.medulla,
@@ -161,7 +162,13 @@ def build_synthetic_connectome(config) -> ConnectomeGraph:
     # with the nearest sampling column so downstream local wiring and 3D
     # layout both respect columnar organization).
     layered_regions = ["retina", "lamina", "medulla"]
-    pooled_regions = ["lobula", "lobula_plate", "central_complex", "mushroom_body"]
+    pooled_regions = [
+        "antenna",
+        "lobula",
+        "lobula_plate",
+        "central_complex",
+        "mushroom_body",
+    ]
 
     depth_for_region = {"retina": 0.30, "lamina": 0.15, "medulla": 0.0}
 
@@ -196,7 +203,12 @@ def build_synthetic_connectome(config) -> ConnectomeGraph:
             region_of[idx] = region
             side_sign = -1.0 if i % 2 == 0 else 1.0
             anchor = info.anchor_left if side_sign < 0 else info.anchor_right
-            spread = 0.5 if region in ("central_complex",) else 0.7
+            if region == "central_complex":
+                spread = 0.5
+            elif region == "antenna":
+                spread = 0.3  # compact paired JO/AMMC population
+            else:
+                spread = 0.7
             jitter = rng.normal(0, spread * 0.35, size=3)
             positions[idx] = np.array(anchor, dtype=np.float32) + jitter
             idx += 1
@@ -276,6 +288,14 @@ def build_synthetic_connectome(config) -> ConnectomeGraph:
         rows_i.extend(src_choice.tolist())
         cols_j.extend(dst_choice.tolist())
         vals.extend(w.tolist())
+
+    # Auditory pathway (BIOLOGY-inspired ordering: Johnston's organ -> AMMC ->
+    # central brain; ASSUMPTION-level counts/weights). Real JO neurons project
+    # to the AMMC, which we do not model as its own region; these pooled
+    # connections stand in for that relay.
+    add_lateral_inhibition("antenna", fan_out=4, w_mean=-0.3, w_std=0.1)
+    add_sparse_random("antenna", "central_complex", p=0.08, w_mean=0.35, w_std=0.1)
+    add_sparse_random("antenna", "mushroom_body", p=0.03, w_mean=0.25, w_std=0.1)
 
     # Feedforward visual pathway (BIOLOGY-inspired ordering; ASSUMPTION-level weights)
     add_local_feedforward("retina", "lamina", fan_out=1, w_mean=1.1, w_std=0.1)

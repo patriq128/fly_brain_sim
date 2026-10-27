@@ -23,7 +23,7 @@ from simulation.config import SimLevel, SimulationConfig
 
 
 def _write_fixture(tmp_path):
-    """15 neurons covering every mapped region plus an 'other' neuron."""
+    """16 neurons covering every mapped region plus an 'other' neuron."""
     rows = [
         # root_id, cell_class, cell_type, side, top_nt, known_nt, y, z
         (1, "visual", "R1-6", "left", "acetylcholine", "", 1000, 100),
@@ -41,6 +41,8 @@ def _write_fixture(tmp_path):
         (13, "ME", "Mi1", "left", "acetylcholine", "", 1600, 450),
         (14, "ME", "Tm3", "right", "acetylcholine", "", 1800, 550),
         (15, "LO", "LC4", "left", "acetylcholine", "", 1900, 650),
+        # Johnston's-organ auditory receptor neuron -> 'antenna'.
+        (16, "mechanosensory", "JO-A", "left", "acetylcholine", "", 900, 950),
     ]
     ann = pd.DataFrame(
         rows,
@@ -96,6 +98,7 @@ def test_region_and_transmitter_mapping(tmp_path):
     assert by_id.loc[6, "region"] == "lobula_plate"  # T4 overrides ME>LOP
     assert by_id.loc[7, "region"] == "lobula_plate"  # T5 overrides LO>LOP
     assert by_id.loc[15, "region"] == "lobula"
+    assert by_id.loc[16, "region"] == "antenna"  # Johnston's-organ JO neuron
     assert by_id.loc[8, "region"] == "mushroom_body"
     assert by_id.loc[9, "region"] == "central_complex"
     assert by_id.loc[11, "region"] == OTHER_REGION
@@ -122,16 +125,16 @@ def test_build_real_graph_from_fixture(tmp_path):
         verbose=False,
     )
     assert graph.source == "flywire_fafb783"
-    assert graph.n_neurons == 15
-    assert graph.adjacency.shape == (15, 15)
-    assert graph.neuron_ids is not None and len(graph.neuron_ids) == 15
+    assert graph.n_neurons == 16
+    assert graph.adjacency.shape == (16, 16)
+    assert graph.neuron_ids is not None and len(graph.neuron_ids) == 16
     # All region buckets used by the fixture exist and partition the graph.
     covered = np.zeros(graph.n_neurons, dtype=bool)
     for sl in graph.region_slices.values():
         covered[sl] = True
     assert covered.all()
     assert set(graph.region_slices) == {
-        "retina", "lamina", "medulla", "lobula", "lobula_plate",
+        "antenna", "retina", "lamina", "medulla", "lobula", "lobula_plate",
         "central_complex", "mushroom_body", "other",
     }
 
@@ -156,11 +159,11 @@ def test_build_real_graph_from_fixture(tmp_path):
     for region in ("retina", "lamina", "medulla", "lobula", "lobula_plate"):
         sl = graph.region_slices[region]
         assert np.all(graph.column_of[sl] >= 0)
-    for region in ("central_complex", "mushroom_body", "other"):
+    for region in ("antenna", "central_complex", "mushroom_body", "other"):
         sl = graph.region_slices[region]
         assert np.all(graph.column_of[sl] == -1)
 
-    assert graph.positions.shape == (15, 3)
+    assert graph.positions.shape == (16, 3)
     assert np.isfinite(graph.positions).all()
 
 
@@ -271,3 +274,11 @@ def test_flybrain_injects_vision_into_identified_cells(tmp_path, monkeypatch):
         assert float(brain_no_motion._external_input[index[6]]) == 0.0
         assert float(brain_no_motion._external_input[index[7]]) == 0.0
     assert float(brain_no_motion._external_input[index[1]]) > 0.0
+
+    # Hearing: the JO-A neuron (16) is driven directly by the auditory
+    # receptor model, while downstream Kenyon cells are still not.
+    t_audio = np.arange(1600) / 16000.0
+    tone = (0.5 * np.sin(2.0 * np.pi * 220.0 * t_audio)).astype(np.float32)
+    brain.step(frames[0], sub_steps=1, audio_window=tone)
+    assert float(brain._external_input[index[16]]) > 0.0
+    assert float(brain._external_input[index[8]]) == 0.0

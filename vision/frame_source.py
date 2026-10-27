@@ -30,6 +30,8 @@ class VideoFrameSource:
         self.target_fps = target_fps
         self.paused = False
         self._frame_idx = 0
+        # True on the tick where read() hit the end and restarted the clip.
+        self.looped = False
 
     @property
     def duration_seconds(self) -> float:
@@ -63,6 +65,7 @@ class VideoFrameSource:
         """Returns (ok, frame_bgr). If paused, re-returns the last frame
         without advancing (ok=True) so downstream visualization can keep
         rendering a frozen frame while the sim is paused."""
+        self.looped = False
         if self.paused:
             pos = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, max(pos - 1, 0))
@@ -76,6 +79,7 @@ class VideoFrameSource:
         else:
             # loop by default so the demo keeps running
             self.restart()
+            self.looped = True
             ok, frame = self.cap.read()
             if ok:
                 self._frame_idx = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))

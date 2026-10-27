@@ -95,7 +95,7 @@ CONNECTIVITY_FILENAME = "proofread_connections_783.feather"
 # ---------------------------------------------------------------------------
 # Bump this when region mapping / selection semantics change, so cached
 # graphs are rebuilt instead of silently mixing conventions.
-SELECTION_VERSION = 1
+SELECTION_VERSION = 2
 
 DEFAULT_MAX_NEURONS = 20_000
 DEFAULT_MIN_SYNAPSES_SUBSET = 1
@@ -107,7 +107,11 @@ DEFAULT_MIN_SYNAPSES_FULL = 5
 DEFAULT_WEIGHT_TARGET = 1.5
 
 OPTIC_LOBE_REGIONS = ("retina", "lamina", "medulla", "lobula", "lobula_plate")
-NAMED_REGIONS = OPTIC_LOBE_REGIONS + ("central_complex", "mushroom_body")
+NAMED_REGIONS = OPTIC_LOBE_REGIONS + (
+    "central_complex",
+    "mushroom_body",
+    "antenna",
+)
 TILE_GRID_OPTIC = 16
 TILE_GRID_CENTRAL = 6
 
@@ -144,6 +148,9 @@ PRIORITY_CELL_TYPES = (
     "L1", "L2", "L3", "L4", "L5",
     "T4a", "T4b", "T4c", "T4d",
     "T5a", "T5b", "T5c", "T5d",
+    # Johnston's-organ auditory receptor neurons; keep a few in tiny subsets
+    # so hearing still reaches the brain.
+    "JO-A", "JO-B", "JO-C", "JO-D", "JO-E", "JO-F",
 )
 PRIORITY_MIN_PER_TYPE = 3
 
@@ -381,8 +388,10 @@ def map_regions(df: pd.DataFrame) -> np.ndarray:
 
     CONNECTOME: the cell_class strings (ME, LA, LO, LOP, CX, Kenyon_Cell, ...)
     are the published Schlegel et al. annotations.  ASSUMPTION: the collapse
-    to seven coarse regions, and assigning T4/T5 to ``lobula_plate`` because
-    that is where their axons terminate and where the motion readout lives.
+    to eight coarse regions, assigning T4/T5 to ``lobula_plate`` because that
+    is where their axons terminate and where the motion readout lives, and
+    assigning Johnston's-organ ``JO-*`` mechanosensory neurons to ``antenna``
+    (the auditory receptor population; they project to the AMMC).
     """
     cc = df["cell_class"].fillna("").astype(str)
     ct = df["cell_type"].fillna("").astype(str)
@@ -400,6 +409,10 @@ def map_regions(df: pd.DataFrame) -> np.ndarray:
     # T4/T5 somata sit in the medulla/lobula cortex, axons in the lobula plate.
     region[ct.str.startswith(("T4", "T5")).to_numpy()] = "lobula_plate"
     region[ct.str.startswith("APL").to_numpy()] = "mushroom_body"
+    # BIOLOGY: JO-* mechanosensory neurons are the auditory receptors of
+    # Johnston's organ. Other mechanosensory cells (bristle/BM_*) stay in
+    # 'other'; they are not auditory.
+    region[ct.str.startswith("JO-").to_numpy()] = "antenna"
     return region
 
 
@@ -522,8 +535,8 @@ def select_neurons(
         target = int(round(optic_quota * mask.sum() / max(optic_total, 1)))
         selected |= _select_tiles(df, mask, target, TILE_GRID_OPTIC, rng)
 
-    # --- central complex / mushroom body: their own small tile grids ----
-    for region_name in ("central_complex", "mushroom_body"):
+    # --- central complex / mushroom body / auditory: own small tile grids ---
+    for region_name in ("central_complex", "mushroom_body", "antenna"):
         if region_name not in quotas:
             continue
         region_mask = named_mask & (region == region_name)
@@ -645,7 +658,7 @@ def build_flywire_connectome(
     max_neurons : int, optional
         ``0`` = whole brain (139,255 neurons); ``None`` uses config/default
         (20,000 for interactive use).  Positive values request approximately
-        that many neurons from the seven named regions.
+        that many neurons from the eight named regions.
     min_synapses : int, optional
         Minimum *summed* synapses per directed pair.  Defaults to 1 for a
         subset and 5 for the whole brain (the published FAFB threshold).

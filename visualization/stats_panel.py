@@ -19,6 +19,7 @@ from brain.network import StepStats
 from brain.regions import REGIONS
 
 REGION_ORDER_DISPLAY = [
+    "antenna",
     "retina",
     "lamina",
     "medulla",
@@ -62,6 +63,19 @@ def format_stats(
         f"({stats.active_fraction*100:4.1f}%)   mean rate ~{stats.mean_firing_rate_hz:5.1f} Hz*"
     )
     lines.append(f"Motion energy (mean): {stats.motion_energy_mean:.4f}")
+    if stats.hearing_active:
+        bands = stats.audio_band_levels
+        lines.append(
+            "Hearing (Johnston's organ): "
+            f"low {_bar(bands.get('low', 0.0))} "
+            f"mid {_bar(bands.get('mid', 0.0))} "
+            f"high {_bar(bands.get('high', 0.0))}"
+        )
+        lines.append(
+            f"  audio rms {stats.audio_rms:.3f}   onset {stats.audio_onset:.3f}"
+        )
+    else:
+        lines.append("Hearing: disabled (--no-hearing)")
     if stats.fly_state is not None:
         fs = stats.fly_state
         lines.append(

@@ -2,7 +2,9 @@
 simulation/config.py
 =====================
 
-Defines the three simulation "levels" described in the project README:
+Defines the three simulation "levels" described in the project README,
+plus the auditory-pathway options (hearing is on by default; see
+`hearing/` and `--no-hearing`):
 
     DEMO        - small synthetic network, runs interactively on a laptop CPU.
     DETAILED    - larger synthetic network with more columns / cell types,
@@ -50,15 +52,19 @@ class RegionSizes:
     """Neuron counts per coarse brain region for a given simulation level.
 
     Region names and their broad roles are real neuroanatomical terms used
-    throughout the Drosophila literature (retina/photoreceptors, lamina,
-    medulla, lobula, lobula plate, central complex, mushroom body). The
-    *counts* below are NOT real cell-type counts except where noted; they
-    are chosen so the demo/detailed graphs are runnable on a laptop while
-    remaining proportionally sensible (e.g. the optic lobes dominate neuron
-    count, matching the qualitative fact that a large fraction of the fly
-    brain is devoted to vision).
+    throughout the Drosophila literature (Johnston's organ/antennae,
+    retina/photoreceptors, lamina, medulla, lobula, lobula plate, central
+    complex, mushroom body). The *counts* below are NOT real cell-type counts
+    except where noted; they are chosen so the demo/detailed graphs are
+    runnable on a laptop while remaining proportionally sensible (e.g. the
+    optic lobes dominate neuron count, matching the qualitative fact that a
+    large fraction of the fly brain is devoted to vision). `antenna` stands
+    in for the auditory receptor neurons of Johnston's organ and is
+    deliberately small: real flies have on the order of ~1,100 JO neurons
+    (Schlegel et al. 2024 annotations), far fewer than optic-lobe cells.
     """
 
+    antenna: int
     retina: int
     lamina: int
     medulla: int
@@ -70,7 +76,8 @@ class RegionSizes:
     @property
     def total(self) -> int:
         return (
-            self.retina
+            self.antenna
+            + self.retina
             + self.lamina
             + self.medulla
             + self.lobula
@@ -87,6 +94,7 @@ class RegionSizes:
 # determined by whatever real data is loaded.
 REGION_SIZES = {
     SimLevel.DEMO: RegionSizes(
+        antenna=64,          # undersampled Johnston's organ (real ~1,100 JO neurons)
         retina=256,          # undersampled hex-ish grid (~1/3 of one real eye)
         lamina=256,          # ~1:1 with retina columns (LMCs are columnar)
         medulla=512,         # medulla has many more cell types per column
@@ -96,6 +104,7 @@ REGION_SIZES = {
         mushroom_body=96,
     ),
     SimLevel.DETAILED: RegionSizes(
+        antenna=256,
         retina=1536,         # ~2 eyes' worth of ommatidia (both eyes combined)
         lamina=1536,
         medulla=4096,
@@ -107,6 +116,7 @@ REGION_SIZES = {
     # Placeholder only - real CONNECTOME mode replaces this with counts read
     # from the loaded adjacency file (see data/connectome_loader.py).
     SimLevel.CONNECTOME: RegionSizes(
+        antenna=256,
         retina=1536,
         lamina=1536,
         medulla=4096,
@@ -161,6 +171,20 @@ class SimulationConfig:
     video_target_fps: float = 15.0                  # frames/sec fed to the sim
     steps_per_video_frame: int = 3                  # brain integration sub-steps per frame
     random_seed: int = 0
+
+    # --- Hearing (Johnston's organ) options ------------------------------
+    # ASSUMPTION: the video's soundtrack stands in for the fly's acoustic
+    # near-field world. Disable with --no-hearing for a vision-only run.
+    hearing_enabled: bool = True
+    audio_sample_rate: int = 16_000                 # mono decode rate (Hz)
+    auditory_gain: float = 1.0                      # user-facing drive multiplier
+
+    # --- End-of-video behavior summary ------------------------------------
+    # When the video reaches its end (first loop), pause and write a summary
+    # PNG of the fly's activity/mood over the clip. See
+    # visualization/behavior_summary.py. None = data/summary/.
+    summary_graph: bool = True
+    summary_output_dir: str | None = None
 
     # --- Real-connectome (CONNECTOME level) options ---------------------
     # "csv"     : load a user-supplied neurons.csv/edges.csv export

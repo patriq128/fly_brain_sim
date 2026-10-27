@@ -23,12 +23,15 @@ Region activity values in [0, 1] are combined into:
     optic   = 0.30*retina + 0.25*lamina + 0.25*medulla + 0.20*lobula
     central = 0.50*central_complex + 0.50*mushroom_body
     motion  = min(1, motion_energy_mean / REF_MOTION_ENERGY)
+    hearing = clip(audio_level, 0, 1)
+    startle = clip(audio_onset, 0, 1)
 
     arousal    = clip(0.5*(active_fraction/REF_ACTIVE_FRACTION)
-                      + 0.5*(mean_region_activity/REF_MEAN_ACTIVITY), 0, 1)
-    salience   = clip(0.55*optic + 0.45*motion, 0, 1)
+                      + 0.5*(mean_region_activity/REF_MEAN_ACTIVITY)
+                      + 0.20*hearing, 0, 1)
+    salience   = clip(0.50*optic + 0.40*motion + 0.25*hearing, 0, 1)
     escape     = clip(0.30*(lobula_plate/REF_LOBULA_PLATE)
-                      + 0.70*motion, 0, 1)
+                      + 0.60*motion + 0.25*startle, 0, 1)
     curiosity  = clip(central/REF_CENTRAL_ACTIVITY, 0, 1)
     valence    = clip(curiosity - escape, -1, 1)
 
@@ -38,8 +41,11 @@ measured physiological thresholds. `escape` leans on the lobula plate
 because that is where the real T4/T5 motion pathway terminates and where
 optomotor/escape responses are read out; `curiosity` leans on the central
 complex and mushroom body because those are the navigation and
-learning/memory centres. The mapping from those real roles to a word like
-"curiosity" is the project's invention.
+learning/memory centres. `hearing`/`startle` use the Johnston's-organ
+receptor model's band and onset outputs (see hearing/johnstons_organ.py);
+the audible world is the video soundtrack, which is an ASSUMPTION. The
+mapping from those real roles to a word like "curiosity" is the project's
+invention.
 """
 
 from __future__ import annotations
@@ -101,6 +107,8 @@ def compute_fly_state(
     *,
     active_fraction: float,
     motion_energy_mean: float,
+    audio_level: float = 0.0,
+    audio_onset: float = 0.0,
 ) -> FlyState:
     """Project region activity into the illustrative state axes.
 
@@ -121,16 +129,21 @@ def compute_fly_state(
         else 0.0
     )
     motion = min(1.0, max(0.0, float(motion_energy_mean) / REF_MOTION_ENERGY))
+    hearing = _clip01(audio_level)
+    startle = _clip01(audio_onset)
     optic = 0.30 * retina + 0.25 * lamina + 0.25 * medulla + 0.20 * lobula
     central = 0.50 * central_complex + 0.50 * mushroom_body
 
     arousal = _clip01(
         0.5 * (float(active_fraction) / REF_ACTIVE_FRACTION)
         + 0.5 * (mean_activity / REF_MEAN_ACTIVITY)
+        + 0.20 * hearing
     )
-    salience = _clip01(0.55 * optic + 0.45 * motion)
+    salience = _clip01(0.50 * optic + 0.40 * motion + 0.25 * hearing)
     escape = _clip01(
-        0.30 * (lobula_plate / REF_LOBULA_PLATE) + 0.70 * motion
+        0.30 * (lobula_plate / REF_LOBULA_PLATE)
+        + 0.60 * motion
+        + 0.25 * startle
     )
     curiosity = _clip01(central / REF_CENTRAL_ACTIVITY)
     valence = min(1.0, max(-1.0, curiosity - escape))

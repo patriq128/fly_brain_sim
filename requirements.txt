@@ -8,6 +8,9 @@ opencv-python>=4.8
 # 3D scientific visualization
 pyvista>=0.43
 
+# End-of-video behavior summary chart (visualization/behavior_summary.py)
+matplotlib>=3.8
+
 # Graph utilities (used incidentally for connectome analysis/tests;
 # the simulation itself uses scipy.sparse directly for performance)
 networkx>=3.2
@@ -21,6 +24,12 @@ pyarrow>=15
 
 # Testing
 pytest>=7.4
+
+# --- Hearing (audio soundtrack) ------------------------------------------
+# The video's soundtrack is decoded with the system `ffmpeg` and `ffprobe`
+# binaries, not a Python package. If they are missing (or the video has no
+# audio track), the hearing pathway is silent; the visual simulation is
+# unaffected. Use `--no-hearing` to disable the auditory pathway explicitly.
 
 # --- Optional, for CONNECTOME mode with real data -------------------------
 # neuprint-python        # pip install this yourself if pulling hemibrain data

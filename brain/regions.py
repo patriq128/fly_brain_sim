@@ -52,13 +52,37 @@ class RegionInfo:
     color: str
 
 
-# Order matters: it is roughly the feedforward flow of visual information,
-# which IS a real, well-documented anatomical pathway:
+# Order matters for display: the auditory afferent comes first, then the
+# feedforward flow of visual information, which IS a real, well-documented
+# anatomical pathway:
+#   Johnston's organ -> (AMMC) -----> central brain
 #   retina -> lamina -> medulla -> lobula / lobula plate -> central brain
 # (see e.g. Fischbach & Dittrich 1989 for the classical optic lobe anatomy,
-# and the flyvis / connectome papers cited in README.md for the modern
-# connectomic description of this pathway).
+# Kamikouchi et al. 2006 for the JO projection map, and the flyvis /
+# connectome papers cited in README.md for the modern connectomic
+# description of the visual pathway).
 REGIONS: dict[str, RegionInfo] = {
+    # In real-connectome mode this bucket holds Johnston's-organ neurons
+    # (cell types JO-*). DEMO/DETAILED add a small synthetic population for
+    # the same role; its wiring is a project ASSUMPTION.
+    "antenna": RegionInfo(
+        key="antenna",
+        display_name="Johnston's organ (hearing)",
+        description=(
+            "BIOLOGY: Johnston's organ, a chordotonal organ in the antenna, "
+            "is the fly's main auditory organ. Its mechanosensory JO neurons "
+            "(cell types JO-A..JO-F and subtypes) are the auditory receptor "
+            "neurons and project to the antennal mechanosensory and motor "
+            "center (AMMC), which relays sound and vibration to the central "
+            "brain. Drosophila hear near-field sound including courtship "
+            "song (~200 Hz pulses) and also sense wind and gravity via "
+            "related JO/AMMC pathways (Kamikouchi et al. 2006, 2009)."
+        ),
+        evidence=Evidence.BIOLOGY,
+        anchor_left=(-3.4, 1.1, 0.85),
+        anchor_right=(3.4, 1.1, 0.85),
+        color="#ff8fab",
+    ),
     "retina": RegionInfo(
         key="retina",
         display_name="Retina (photoreceptors)",
@@ -159,18 +183,19 @@ REGIONS: dict[str, RegionInfo] = {
         color="#3d348b",
     ),
     # Only present in real-connectome (FlyWire) mode: neurons whose published
-    # cell class is outside the seven coarse regions above (olfactory,
-    # mechanosensory, ascending/descending, etc.).  Kept so the whole-brain
-    # graph is complete rather than silently dropping a third of the brain.
+    # cell class is outside the eight coarse regions above (olfactory,
+    # non-auditory mechanosensory, ascending/descending, etc.).  Kept so the
+    # whole-brain graph is complete rather than silently dropping a third of
+    # the brain.
     "other": RegionInfo(
         key="other",
         display_name="Other central brain",
         description=(
             "CONNECTOME: real FlyWire neurons not assigned to one of the "
-            "seven visual/central regions this project models (olfactory, "
-            "mechanosensory, ascending/descending, unclassified). They are "
-            "included in whole-brain mode but receive no targeted visual "
-            "drive."
+            "eight named sensory/central regions this project models "
+            "(olfactory, non-auditory mechanosensory, ascending/descending, "
+            "unclassified). They are included in whole-brain mode but "
+            "receive no targeted visual or auditory drive."
         ),
         evidence=Evidence.CONNECTOME,
         anchor_left=(0.0, -0.4, -0.3),
@@ -185,6 +210,7 @@ REGIONS: dict[str, RegionInfo] = {
 # fly behavior (e.g. turning, landing, escape) - it is presented purely as
 # an illustrative aggregate signal.
 REGION_ORDER = [
+    "antenna",
     "retina",
     "lamina",
     "medulla",

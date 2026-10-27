@@ -6,6 +6,9 @@ main.py
 Entry point. Example usage:
 
     python main.py --video my_clip.mp4
+    python main.py --video my_clip.mp4 --no-hearing        # vision only
+    python main.py --video my_clip.mp4 --audio-gain 2.0    # louder hearing drive
+    python main.py --video my_clip.mp4 --no-summary-graph  # skip end-of-video chart
     python main.py --video my_clip.mp4 --level detailed
     python main.py --video my_clip.mp4 --level connectome     # real FlyWire, auto-download
     python main.py --video my_clip.mp4 --level connectome --max-neurons 0  # whole brain
@@ -27,7 +30,10 @@ from simulation.config import SimLevel, SimulationConfig
 
 def build_argparser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Simulated Drosophila visual system + brain, driven by a video file."
+        description=(
+            "Simulated Drosophila visual + auditory system and brain, driven "
+            "by a video file and its soundtrack."
+        )
     )
     p.add_argument("--video", type=str, default=None, help="Path to an input video file.")
     p.add_argument(
@@ -106,6 +112,29 @@ def build_argparser() -> argparse.ArgumentParser:
         default=3,
         help="Neural integration sub-steps per video frame (higher = smoother/slower dynamics).",
     )
+    p.add_argument(
+        "--no-hearing",
+        action="store_true",
+        help="Disable the auditory pathway; run vision-only (the video's "
+        "soundtrack is otherwise decoded and fed to Johnston's-organ model).",
+    )
+    p.add_argument(
+        "--audio-gain",
+        type=float,
+        default=1.0,
+        help="Multiplier on auditory drive into the brain (default 1.0).",
+    )
+    p.add_argument(
+        "--no-summary-graph",
+        action="store_true",
+        help="Do not generate the behavior-summary graph when the video ends.",
+    )
+    p.add_argument(
+        "--summary-dir",
+        type=str,
+        default=None,
+        help="Directory for the end-of-video summary PNG (default: data/summary).",
+    )
     p.add_argument("--seed", type=int, default=0, help="Random seed for the synthetic connectome/dynamics noise.")
     p.add_argument("--no-video-panel", action="store_true", help="Only show the 3D brain view.")
     p.add_argument(
@@ -147,6 +176,10 @@ def main(argv=None):
     config.video_target_fps = args.video_fps
     config.steps_per_video_frame = args.sub_steps
     config.random_seed = args.seed
+    config.hearing_enabled = not args.no_hearing
+    config.auditory_gain = args.audio_gain
+    config.summary_graph = not args.no_summary_graph
+    config.summary_output_dir = args.summary_dir
 
     if level == SimLevel.CONNECTOME:
         source = args.connectome_source

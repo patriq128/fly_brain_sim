@@ -1,11 +1,11 @@
 # Fly Brain Sim
 
-An experimental, open-source Python project that simulates how visual
-information from a video you provide might propagate through a
-**simplified model of the Drosophila melanogaster visual system and brain**,
-running either on a synthetic connectome-inspired network or on the **real
-measured FlyWire FAFB v783 connectome**, with a live interactive 3D
-visualization of the resulting neural activity.
+An experimental, open-source Python project that simulates how visual and
+auditory information from a video you provide might propagate through a
+**simplified model of the Drosophila melanogaster visual and auditory
+systems and brain**, running either on a synthetic connectome-inspired
+network or on the **real measured FlyWire FAFB v783 connectome**, with a
+live interactive 3D visualization of the resulting neural activity.
 
 > **This is a computational simulation inspired by fly neuroscience, not a
 > reproduction of a real fly's brain, thoughts, or consciousness.** Every
@@ -22,7 +22,9 @@ visualization of the resulting neural activity.
 
 ## What this actually does
 
-1. You give it a video file.
+1. You give it a video file. Its soundtrack is decoded too (with the
+   system `ffmpeg`/`ffprobe` binaries), so the simulated fly can **hear**
+   as well as see the clip.
 2. Frames are extracted and downsampled onto a grid standing in for the
    fly's ommatidial array (`vision/retina.py`).
 3. That signal is pushed through a pathway whose *stage order* mirrors the
@@ -31,30 +33,50 @@ visualization of the resulting neural activity.
    those stages is the **real measured FlyWire graph**; in `demo`/`detailed`
    it is procedurally generated (`brain/regions.py`,
    `brain/connectome.py`, `data/flywire_source.py`).
-4. Local motion is detected with a vectorized **Hassenstein-Reichardt
+4. The soundtrack is passed through a simplified **Johnston's-organ**
+   model: three FFT bands (low/mid/high, spanning ~80–700 Hz and covering
+   the fly's behaviorally relevant ~100–500 Hz range), receptor adaptation,
+   and an onset/transient signal (`hearing/audio_source.py`,
+   `hearing/johnstons_organ.py`). In
+   `connectome` mode this drives the real FlyWire **JO-\*** auditory
+   receptor neurons; in `demo`/`detailed` it drives an `antenna` region.
+   BIOLOGY: Johnston's organ in the antennae is the fly's main hearing
+   organ and projects to the AMMC; the soundtrack-as-acoustic-world step is
+   a documented **ASSUMPTION**.
+5. Local motion is detected with a vectorized **Hassenstein-Reichardt
    correlator** (the same mathematical model believed to underlie the
    fly's real T4/T5 direction-selective neurons) (`brain/motion_pathway.py`).
-5. All neurons are simulated as a single large recurrent network of
+6. All neurons are simulated as a single large recurrent network of
    generic leaky-rate units (`brain/neuron_model.py`), driven by the
-   vision pathway and by each other, at a controllable sub-step rate.
-6. An interactive **PyVista 3D scene** shows every neuron as a point,
+   vision and hearing pathways and by each other, at a controllable
+   sub-step rate.
+7. An interactive **PyVista 3D scene** shows every neuron as a point,
    colors it by which brain region it belongs to and how active it
    currently is, draws (a subsample of) its synapses, and updates live as
    the video plays (`visualization/brain3d.py`).
-7. A synced video panel and a live statistics readout (active neuron
-   count, per-region activity, firing-rate estimate, strongest active
-   connections, sim time, FPS) run alongside it
+8. A synced video/audio panel and a live statistics readout (active neuron
+   count, per-region activity, hearing band levels, firing-rate estimate,
+   strongest active connections, sim time, FPS) run alongside it
    (`visualization/video_panel.py`, `visualization/stats_panel.py`).
-8. You can play, pause, seek, and restart at any time.
-9. The stats overlay includes a deliberately playful **"what is the fly
-   feeling?"** readout: the current activity is projected into arousal,
-   visual salience, fear/escape, curiosity and valence axes, plus a one-line
-   mood (`brain/fly_state.py`). A rolling **emotion-mix graph** shows the
-   percentage of the last 120 frames spent in each mood, as ASCII bars in the
-   stats overlay and as a colored bar chart in the video panel. This is an
-   **illustrative UI projection, not a claim that the simulation experiences
-   anything**; it is labeled as such on screen and in
-   `docs/SIMULATION_NOTES.md`.
+9. You can play, pause, seek, and restart at any time.
+10. The stats overlay includes a deliberately playful **"what is the fly
+    feeling?"** readout: the current activity is projected into arousal,
+    sensory salience (vision + hearing), fear/escape, curiosity and valence
+    axes, plus a one-line
+    mood (`brain/fly_state.py`). A rolling **emotion-mix graph** shows the
+    percentage of the last 120 frames spent in each mood, as ASCII bars in
+    the stats overlay and as a colored bar chart in the video panel. This is
+    an **illustrative UI projection, not a claim that the simulation
+    experiences anything**; it is labeled as such on screen and in
+    `docs/SIMULATION_NOTES.md`.
+11. When the video reaches its end, the app pauses and generates a
+    **behavior-summary graph** from what happened during the clip: a
+    time-aligned mood strip, a per-region activity heatmap, the fly-state
+    axes over time, and the share of frames spent in each mood
+    (`simulation/behavior_log.py`, `visualization/behavior_summary.py`).
+    The PNG is saved under `data/summary/` and shown in its own window.
+    `--no-summary-graph` disables it; `--summary-dir` changes the output
+    folder.
 
 ## Why it's built this way (research background)
 
@@ -98,8 +120,18 @@ pip install -r requirements.txt
 # Try it immediately with an auto-generated synthetic test video:
 python main.py
 
-# Or with your own video:
+# Or with your own video (its soundtrack drives the hearing pathway too):
 python main.py --video path/to/your_clip.mp4
+
+# Vision only, no hearing:
+python main.py --video path/to/your_clip.mp4 --no-hearing
+
+# Make the soundtrack drive the brain harder/softer:
+python main.py --video path/to/your_clip.mp4 --audio-gain 2.0
+
+# Skip the end-of-video behavior summary, or put it somewhere else:
+python main.py --video path/to/your_clip.mp4 --no-summary-graph
+python main.py --video path/to/your_clip.mp4 --summary-dir ./my_summaries
 
 # Larger synthetic network:
 python main.py --video path/to/your_clip.mp4 --level detailed
@@ -119,7 +151,8 @@ python main.py --level connectome --summary-only --no-download
 ```
 
 Two windows open: a **3D brain view** (PyVista) and a **video / photoreceptor
-panel** (OpenCV). Controls (work in either window):
+/ audio panel** (OpenCV). A third **behavior-summary window** appears when
+the clip ends. Controls (work in either window):
 
 | Key | Action |
 |---|---|
@@ -128,13 +161,17 @@ panel** (OpenCV). Controls (work in either window):
 | `←` / `→` | seek back / forward ~1s |
 | `q` / `Esc` | quit |
 
+When the end-of-video summary window is open, any key closes it; `space`
+then resumes playback and `r` restarts. The summary PNG stays saved under
+`data/summary/` either way.
+
 ## Simulation levels
 
 | Level | Neurons | Data source | Notes |
 |---|---|---|---|
-| `demo` (default) | ~1,400 | synthetic, connectome-inspired | runs comfortably on a laptop CPU |
-| `detailed` | ~15,000 | synthetic, connectome-inspired | still interactive; more columns/cell density |
-| `connectome` | ~20,800 default subset; up to 139,255 whole brain | **real FlyWire FAFB v783**, auto-downloaded (or your own CSV export) | first run downloads/verifies ~880 MB; subset is interactive, whole brain is slower |
+| `demo` (default) | ~1,440 | synthetic, connectome-inspired | runs comfortably on a laptop CPU |
+| `detailed` | ~11,200 | synthetic, connectome-inspired | still interactive; more columns/cell density |
+| `connectome` | ~20,600 default subset; up to 139,255 whole brain | **real FlyWire FAFB v783**, auto-downloaded (or your own CSV export) | first run downloads/verifies ~880 MB; subset is interactive, whole brain is slower |
 
 ### Real connectome (`connectome` level)
 
@@ -178,11 +215,41 @@ connectome dynamics drive T4/T5 without the HRC motion maps), and
 What is measured vs. modeled: neuron identities, cell types, soma
 positions, synapse counts and predicted neurotransmitters are **CONNECTOME**
 data. Log-weight compression, incoming-weight normalization, subset
-selection, region collapse, retinotopic column mapping, the photoreceptor
-sign override, and the leaky-rate dynamics are **SIMULATION/ASSUMPTION**
-choices. See
+selection, region collapse (including mapping `JO-*` neurons to `antenna`),
+retinotopic column mapping, the photoreceptor sign override, the auditory
+filterbank/adaptation and its injection gains, and the leaky-rate dynamics
+are **SIMULATION/ASSUMPTION** choices. See
 [`docs/SIMULATION_NOTES.md`](docs/SIMULATION_NOTES.md#2-stage-by-stage-breakdown)
 for the stage-by-stage breakdown.
+
+### Hearing (`hearing/`)
+
+The audio track of the input video is decoded with the system
+`ffmpeg`/`ffprobe` binaries (not a Python package) and fed to a simplified
+Johnston's-organ model. No audio track, missing ffmpeg, or `--no-hearing`
+simply means silent auditory input; the visual simulation is unaffected.
+
+- **BIOLOGY**: Johnston's organ in the antennae is the fly's main auditory
+  organ. Its mechanosensory **JO** neurons (cell types `JO-A`…`JO-F` and
+  subtypes) are the auditory receptor neurons and project to the antennal
+  mechanosensory and motor center (AMMC). Fly hearing is tuned to near-field
+  sound/vibration, including the ~200 Hz pulse component of the courtship
+  song (Kamikouchi et al. 2006, 2009; Albert & Göpfert 2015).
+- **SIMULATION**: a three-band FFT filterbank (low/mid/high, spanning
+  ~80–700 Hz), exponential receptor adaptation, and an onset/transient
+  signal (`hearing/johnstons_organ.py`).
+- **ASSUMPTION**: the video's soundtrack is the fly's acoustic world (just
+  as its frames are the visual world); the band ranges, gains and the
+  decision to give every JO subtype the same band mixture are project
+  choices, not measured tuning curves. In `connectome` mode the real
+  `JO-*` neurons in the loaded graph are driven; the default FlyWire
+  subset contains ~240 of them, whole-brain mode contains all ~1,100. In
+  `demo`/`detailed` mode a small synthetic `antenna` population stands in
+  for them (`brain/regions.py`, `brain/connectome.py`).
+
+The app **analyses** the soundtrack but does not play it aloud. The
+video panel shows the current audio waveform and the three band meters, and
+the stats overlay reports the hearing drive.
 
 The downloaded source files live under `data/real/` (git-ignored; see
 [`data/real/README.md`](data/real/README.md)) and are **CC-BY-4.0**. If you
@@ -203,6 +270,9 @@ fly_brain_sim/
 ├── vision/
 │   ├── retina.py               # photoreceptor sampling model
 │   └── frame_source.py         # video I/O, play/pause/seek/restart
+├── hearing/
+│   ├── audio_source.py         # ffmpeg soundtrack decode, time-indexed windows
+│   └── johnstons_organ.py      # JO-neuron filterbank/adaptation model
 ├── brain/
 │   ├── regions.py               # brain region metadata + evidence labels
 │   ├── connectome.py            # synthetic + real connectome graph construction
@@ -212,10 +282,13 @@ fly_brain_sim/
 │   └── network.py               # wires vision + connectome + dynamics together
 ├── simulation/
 │   ├── config.py                 # SimLevel enum, region sizes, dynamics params
-│   └── engine.py                  # main tick loop / transport controls
+│   ├── engine.py                  # main tick loop / transport controls
+│   └── behavior_log.py            # per-frame history for the end-of-video summary
 ├── visualization/
 │   ├── brain3d.py                # PyVista interactive 3D scene
-│   ├── video_panel.py             # OpenCV video + photoreceptor-grid panel
+│   ├── video_panel.py             # OpenCV video + photoreceptor + audio panel
+│   ├── summary_panel.py           # displays the end-of-video summary PNG
+│   ├── behavior_summary.py        # builds the behavior-summary chart
 │   ├── emotion_chart.py           # colored rolling emotion-mix bar chart
 │   └── stats_panel.py             # live stats text formatting
 ├── ui/
@@ -271,4 +344,8 @@ Roughly in order of impact per effort, per the honesty framework in
 6. **GPU acceleration.** Port `LeakyRateNetwork` to a GPU sparse backend
    to make whole-connectome (`~139k` neuron) real-time simulation
    practical - see `docs/SIMULATION_NOTES.md §3` for specifics.
+7. **A more faithful auditory front end.** Replace the three-band filterbank
+   (`hearing/johnstons_organ.py`) with measured per-subtype JO frequency
+   tuning and a model of antennal mechanics, so different `JO-*` groups
+   receive the sound components they are actually tuned to.
 

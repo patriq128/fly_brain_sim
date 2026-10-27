@@ -8,8 +8,9 @@ module docstring in the codebase makes the same distinction locally; this
 file collects it in one place for reference.
 
 **This project is a computational simulation *inspired by* the Drosophila
-visual system and connectome. It does not reproduce, and does not claim to
-reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
+visual and auditory systems and connectome. It does not reproduce, and does
+not claim to reproduce, the actual thoughts, percepts, or consciousness of a
+real fly.**
 
 ## 1. Evidence categories used throughout the code
 
@@ -18,7 +19,7 @@ reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
 | `BIOLOGY` | An experimentally established anatomical or physiological fact from the published literature. |
 | `CONNECTOME` | Taken from, or (in DEMO/DETAILED mode) inspired by published summaries of, real measured connectivity. |
 | `SIMULATION` | A mathematical/numerical modeling choice (activation function, integration scheme, etc.) with no direct biological claim. |
-| `ASSUMPTION` | A simplification or design decision specific to this project (e.g. using video as visual input, schematic 3D coordinates). |
+| `ASSUMPTION` | A simplification or design decision specific to this project (e.g. using video/soundtrack as sensory input, schematic 3D coordinates). |
 
 ## 2. Stage-by-stage breakdown
 
@@ -41,6 +42,43 @@ reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
   adaptation is modeled as an exponential moving average baseline
   subtraction - a generic gain-control idea, not Juusola & Hardie's
   biophysical adaptation model.
+
+### Auditory pathway / Johnston's organ (`hearing/`)
+- **BIOLOGY**: Johnston's organ is a chordotonal organ in the antenna and
+  the fly's main auditory organ. Its mechanosensory JO neurons (cell types
+  `JO-A`…`JO-F` plus many subtypes) are the auditory receptor neurons and
+  project to the antennal mechanosensory and motor center (AMMC), which
+  relays sound/vibration to the central brain. Drosophila hearing is tuned
+  to near-field sound and vibration, including the ~200 Hz pulse component
+  of the male courtship song; related JO/AMMC pathways also carry wind and
+  gravity information (Kamikouchi et al. 2006, 2009; Albert & Göpfert
+  2015). JO neurons adapt to sustained sound and are especially sensitive
+  to transients.
+- **ASSUMPTION**: the audio track of the input video is treated as the
+  fly's acoustic world, exactly as video frames are treated as its visual
+  world. We do not model near-field acoustics, antennal mechanics, or the
+  measured frequency tuning of individual JO subtypes. The audio is
+  analysed but not played aloud by the app.
+- **SIMULATION**: `hearing/johnstons_organ.py` computes three FFT-band
+  amplitudes (low ~80–180 Hz, mid ~180–350 Hz, high ~350–700 Hz) from a
+  Hann-windowed short-time window, applies an exponential moving-average
+  adaptation baseline per band, and reports a rectified frame-to-frame
+  broadband onset signal. The three bands plus onset are combined with
+  fixed weights (mid band weighted most, since it contains the courtship
+  pulse frequency) and injected as external current into auditory receptor
+  targets. In `connectome` mode the targets are the real `JO-*` neurons in
+  the loaded graph (mapped to the `antenna` region); in `demo`/`detailed`
+  mode they are a small synthetic `antenna` population. If neither exists
+  in a custom CSV export, the `other` bucket is used as a fallback.
+- **CONNECTOME**: the `JO-*` cell-type labels and the neurons' measured
+  synapses are from the Schlegel et al. 2024 annotations/FlyWire graph. The
+  default ~20k subset contains ~240 JO neurons; whole-brain mode contains
+  all ~1,100. The synthetic `antenna` count and its antenna → central
+  complex / mushroom body wiring are invented for this project.
+- **ASSUMPTION**: all `JO-*` neurons receive the same band mixture and
+  injection gain; `--audio-gain` scales the drive and `--no-hearing`
+  disables it. The band ranges, gains and adaptation constants are
+  display/behavior calibration choices, not fitted electrophysiology.
 
 ### Lamina / early motion pathway (`brain/motion_pathway.py`)
 - **BIOLOGY**: T4 (ON) and T5 (OFF) cells are the fly's identified
@@ -79,9 +117,10 @@ reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
   that export.
 - **SIMULATION/ASSUMPTION in the real-connectome path** (all called out in
   `data/flywire_source.py`):
-  - The ~180+ published cell classes are collapsed into seven coarse regions
+  - The ~180+ published cell classes are collapsed into eight coarse regions
     plus an `other` bucket; T4/T5 are assigned to `lobula_plate` because that
-    is where their axons terminate and the motion readout lives.
+    is where their axons terminate and the motion readout lives, and
+    Johnston's-organ `JO-*` neurons are assigned to `antenna`.
   - Per-neuron transmitter is mapped to an effective sign (ACh +1; GABA,
     glutamate, histamine, glycine −1; dopamine/serotonin/octopamine +0.25).
     Biologically, photoreceptors release inhibitory histamine; here their
@@ -97,8 +136,10 @@ reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
     budget choice, not a biological claim.
   - External visual drive is injected only into identified photoreceptors
     (R1-6 get the achromatic channel, R7/R8 the chroma proxy), plus
-    optionally the four T4/T5 subtype maps from the HRC. Every other region
-    is driven solely through the measured synapses. **ASSUMPTION**: the
+    optionally the four T4/T5 subtype maps from the HRC. Auditory drive is
+    injected only into identified `JO-*` Johnston's-organ neurons (see the
+    auditory-pathway section above). Every other region is driven solely
+    through the measured synapses. **ASSUMPTION**: the
     video's +x axis is identified with T4/T5 subtype `a` (front-to-back in
     the real fly; Maisak et al. 2013) and its four cardinal directions are
     assigned as a/b/c/d = right/left/up/down. The absolute azimuth is
@@ -155,11 +196,13 @@ reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
 - **SIMULATION/ASSUMPTION**: the stats overlay grows a playful
   "what is the fly feeling?" block from the same region activity. It
   computes five fixed axes:
-  - `arousal`: weighted overall active fraction + mean region activity.
-  - `salience`: optic-lobe activity plus motion energy.
-  - `escape` ("fear"): lobula-plate activity plus motion energy. The
-    lobula plate is where the real T4/T5 motion pathway terminates and
-    optomotor/escape responses are read out.
+  - `arousal`: weighted overall active fraction + mean region activity +
+    a small hearing-level term.
+  - `salience`: optic-lobe activity, motion energy, and hearing level.
+  - `escape` ("fear"): lobula-plate activity, motion energy, and the
+    auditory onset/transient signal. The lobula plate is where the real
+    T4/T5 motion pathway terminates and optomotor/escape responses are read
+    out; JO-receptor transients are an additional startle-like input.
   - `curiosity`: central-complex + mushroom-body activity. Those are the
     real navigation and learning/memory centres, but mapping their generic
     simulated activity to a word like "curiosity" is the project's
@@ -181,6 +224,22 @@ reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
   in the same category as the illustrative "firing rate (Hz)" number. The
   overlay states this explicitly on screen ("ILLUSTRATIVE - not a real
   experience").
+
+### End-of-video behavior summary (`simulation/behavior_log.py`, `visualization/behavior_summary.py`)
+- **SIMULATION/ASSUMPTION**: the app records one lightweight snapshot per
+  displayed video frame (active fraction, per-region mean activity, the
+  illustrative fly-state axes, motion energy, and auditory band levels).
+  When the clip first reaches its end, it writes a summary PNG containing a
+  time-aligned mood strip, a region-activity heatmap, the state axes over
+  time, and the fraction of frames spent in each mood, then pauses and
+  displays it.
+- The summary is **descriptive of this simulation only**. It adds no new
+  modeling and is not a fly ethogram, behavioral classification, or claim
+  that the activity corresponds to anything a real fly does. The mood labels
+  are the same playful UI projection described above; the region heatmap is
+  the same generic leaky-rate activity shown live in the app. The chart is
+  saved under `data/summary/` (git-ignored) and can be disabled with
+  `--no-summary-graph`.
 
 ### Higher brain regions: lobula, lobula plate, central complex, mushroom body
 - **BIOLOGY**: these are real, named neuropils with well-documented broad
@@ -211,9 +270,9 @@ reproduce, the actual thoughts, percepts, or consciousness of a real fly.**
 
 | Level | Neurons | Synapses (approx) | Source | Typical use |
 |---|---|---|---|---|
-| `demo` | ~1,400 | ~12,000 | fully synthetic | interactive on a laptop CPU, ~300+ simulation ticks/sec measured headless in this repo's test environment |
-| `detailed` | ~15,000 | proportionally more (still capped by fan-in/fan-out limits in `brain/connectome.py`) | fully synthetic | still interactive; scipy sparse matrix-vector products keep the per-step cost roughly linear in edge count |
-| `connectome` | ~20,800 default subset; 139,255 whole brain (FlyWire), or ~25,000 (hemibrain) | ~380,000 subset; 2,700,513 whole brain at ≥5 synapses (FlyWire), or ~20M (hemibrain) | real FlyWire FAFB v783 (auto-downloaded) or your CSV export | subset is interactive on a laptop; whole-brain mode is usable but slower, especially once rendered |
+| `demo` | ~1,440 | ~12,700 | fully synthetic | interactive on a laptop CPU, ~300+ simulation ticks/sec measured headless in this repo's test environment |
+| `detailed` | ~11,200 | proportionally more (still capped by fan-in/fan-out limits in `brain/connectome.py`) | fully synthetic | still interactive; scipy sparse matrix-vector products keep the per-step cost roughly linear in edge count |
+| `connectome` | ~20,600 default subset; 139,255 whole brain (FlyWire), or ~25,000 (hemibrain) | ~362,000 subset; 2,700,513 whole brain at ≥5 synapses (FlyWire), or ~20M (hemibrain) | real FlyWire FAFB v783 (auto-downloaded) or your CSV export | subset is interactive on a laptop; whole-brain mode is usable but slower, especially once rendered |
 
 **Why the full connectome is still a heavy target:** the raw FlyWire table
 has ~16.85 M `(pre, post, neuropil)` rows, which sum to ~2.70 M weighted
@@ -224,7 +283,7 @@ state vectors and their history for visualization (points, colors, edge
 subsampling, etc.) every rendered frame. This is not impossible on capable
 hardware, but it is well outside what this project's default settings target
 ("runs on a normal computer", per the project spec). For scale, on the
-development machine used for this project, the default 20,830-neuron /
+development machine used for this project, the default 20,600-neuron /
 380,394-edge subset processed 10 video frames (3 sub-steps each) in ~0.15 s,
 and the whole 139,255-neuron / 2.70 M-edge graph took ~60 ms per frame before
 rendering; the 3D viewer, not the dynamics, is the bottleneck at that size.
@@ -281,6 +340,18 @@ Recommended paths if you want to push toward `connectome` scale:
   connectivity of Drosophila motion detector neurons.* Nature.
   https://doi.org/10.1038/nature12320 (a/b/c/d subtype tuning and the
   preferred-direction map referenced in `brain/network.py`)
+- Kamikouchi, A. et al. (2006). *Comprehensive classification of the
+  auditory sensory projections in the brain of the fruit fly.*
+  Journal of Comparative Neurology 499, 317–356. (JO-A…JO-F classification
+  and projections to the AMMC, used to identify auditory receptors in
+  `data/flywire_source.py` / `hearing/`)
+- Kamikouchi, A., Inagaki, H.K., Effertz, T., Hendrich, O., Fiala, A.,
+  Göpfert, M.C. & Ito, K. (2009). *The neural basis of Drosophila
+  gravity-sensing and hearing.* Nature 458, 165–171.
+- Albert, J.T. & Göpfert, M.C. (2015). *Hearing in Drosophila.*
+  Current Opinion in Neurobiology 34, 79–85. (behaviorally relevant
+  near-field sound frequencies and courtship-song tuning referenced in
+  `hearing/johnstons_organ.py`)
 - Eckstein, N., Bates, A.S. et al. (2024). *Neurotransmitter classification
   from electron microscopy images at synaptic sites in Drosophila
   melanogaster.* Cell. (the predicted neurotransmitter labels distributed

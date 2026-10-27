@@ -8,6 +8,7 @@ venv/
 # Generated/local artifacts - not source
 data/sample/synthetic_demo.mp4
 data/sample/*.png
+data/summary/
 *.mp4
 !data/sample/make_sample_video.py
 

@@ -5,6 +5,7 @@ brain/network.py
 Ties together:
   vision.retina.RetinaModel       -> photoreceptor responses
   brain.motion_pathway.ReichardtMotionDetector -> local motion signals
+  hearing.johnstons_organ.AuditoryReceptorModel -> auditory receptor responses
   brain.connectome.ConnectomeGraph -> wiring
   brain.neuron_model.LeakyRateNetwork -> dynamics
 
@@ -26,6 +27,13 @@ below for the detailed biology/assumption breakdown of each stage):
       -> downstream regions (lobula, lobula_plate, central_complex,
          mushroom_body) evolve from recurrent input alone, same as any
          other neuron in the graph.
+
+    video soundtrack (ASSUMPTION: video audio as the acoustic world)
+      -> AuditoryReceptorModel (BIOLOGY-inspired Johnston's organ / JO
+         neurons, SIMULATION: FFT filterbank + adaptation)
+      -> injected as external current into 'antenna' neurons in synthetic
+         mode, or into real JO-* neurons in connectome mode
+      -> propagates through the same recurrent dynamics.
 """
 
 from __future__ import annotations
@@ -39,6 +47,7 @@ from brain.fly_state import EmotionTracker, FlyState, compute_fly_state
 from brain.motion_pathway import ReichardtMotionDetector
 from brain.neuron_model import LeakyRateNetwork
 from brain.regions import OTHER_REGION, REGION_ORDER
+from hearing.johnstons_organ import AuditoryReceptorModel
 from simulation.config import SimLevel, SimulationConfig
 from vision.retina import RetinaModel
 
@@ -63,6 +72,19 @@ T4_T5_DIRECTIONS = {
 MOTION_INJECTION_GAIN = 4.0
 PHOTORECEPTOR_CHANNELS = ("R1-6", "R7", "R8")
 
+# BIOLOGY: JO-* are the mechanosensory/auditory receptor neurons of
+# Johnston's organ (Kamikouchi et al. 2006). ASSUMPTION: they all receive the
+# same coarse band mixture; see hearing/johnstons_organ.py.
+AUDITORY_CELL_TYPE_PREFIX = "JO-"
+# SIMULATION: how strongly the auditory receptor response drives its target
+# neurons. Chosen to be visible on the [0, 1] activity scale without
+# swamping visual drive.
+AUDIO_INJECTION_GAIN = 1.5
+# ASSUMPTION: mid band (which contains the ~200 Hz courtship-song pulse
+# frequency) weighted most, plus a transient/onset component.
+AUDIO_BAND_WEIGHTS = {"low": 0.6, "mid": 1.0, "high": 0.8}
+AUDIO_ONSET_WEIGHT = 1.2
+
 
 @dataclass
 class StepStats:
@@ -76,6 +98,12 @@ class StepStats:
     motion_energy_mean: float
     frame_process_ms: float
     strongest_connection_labels: list[str] = field(default_factory=list)
+    # Auditory pathway (Johnston's organ). Band levels are receptor-model
+    # outputs in [0, 1]; zero when hearing is disabled or the video is silent.
+    hearing_active: bool = False
+    audio_band_levels: dict[str, float] = field(default_factory=dict)
+    audio_rms: float = 0.0
+    audio_onset: float = 0.0
     # Illustrative activity-derived "mood" readout; see brain/fly_state.py.
     # Never a claim that the simulation experiences anything.
     fly_state: FlyState | None = None
@@ -123,16 +151,25 @@ class FlyBrain:
 
         self.retina_model = RetinaModel(config.retina_grid_shape)
         self.motion_detector = ReichardtMotionDetector(config.retina_grid_shape)
+        self.auditory_model = AuditoryReceptorModel(config.audio_sample_rate)
         self.dynamics = LeakyRateNetwork(self.graph.adjacency, config.dynamics, seed=config.random_seed)
         self.emotion_tracker = EmotionTracker()
 
         # Real-connectome metadata: fast cell-type -> index lookups for
-        # targeted visual drive (photoreceptors and T4/T5 subtypes).
+        # targeted visual drive (photoreceptors and T4/T5 subtypes) and
+        # auditory drive (Johnston's-organ JO-* receptor neurons).
         self._cell_type_indices: dict[str, np.ndarray] = {}
+        self._auditory_indices = np.empty(0, dtype=np.int64)
         if self.graph.cell_type_of is not None:
             cell_types = np.asarray(self.graph.cell_type_of, dtype=object)
             for name in PHOTORECEPTOR_CHANNELS + tuple(T4_T5_DIRECTIONS):
                 self._cell_type_indices[name] = np.flatnonzero(cell_types == name)
+            is_auditory = np.fromiter(
+                (str(ct).startswith(AUDITORY_CELL_TYPE_PREFIX) for ct in cell_types),
+                dtype=bool,
+                count=cell_types.size,
+            )
+            self._auditory_indices = np.flatnonzero(is_auditory)
         self._is_real = self.graph.source != "synthetic"
 
         # Precompute the strongest synapses once; per-frame "strongest active
@@ -154,12 +191,26 @@ class FlyBrain:
         self._last_motion_energy = 0.0
         self._last_luminance_grid = None
         self._last_direction_maps = None
+        self._last_audio_features = self._silent_audio_features()
         self._external_input = np.zeros(self.graph.n_neurons, dtype=np.float32)
+
+    @staticmethod
+    def _silent_audio_features() -> dict[str, float]:
+        return {
+            "low": 0.0,
+            "mid": 0.0,
+            "high": 0.0,
+            "rms": 0.0,
+            "onset": 0.0,
+            "total": 0.0,
+        }
 
     def reset(self):
         self.dynamics.reset()
         self._sim_time_s = 0.0
         self.retina_model._baseline = None
+        self.auditory_model.reset()
+        self._last_audio_features = self._silent_audio_features()
         self.emotion_tracker.reset()
 
     def _inject_vision(self, frame_bgr: np.ndarray, dt: float):
@@ -254,6 +305,56 @@ class FlyBrain:
             if retina_slice is not None:
                 self._external_input[retina_slice] += float(r1_6.mean()) * 2.0
 
+    def _inject_hearing(self, audio_window: np.ndarray | None):
+        """Add auditory-receptor drive for the current video frame's sound.
+
+        Target neurons: real ``JO-*`` Johnston's-organ neurons when the
+        connectome has cell types, otherwise the ``antenna`` region (synthetic
+        mode and CSV exports that label it). If neither exists, no neuron is
+        driven directly; the stats still report the audio levels.
+        """
+        if (
+            not self.config.hearing_enabled
+            or audio_window is None
+            or np.size(audio_window) == 0
+        ):
+            self._last_audio_features = self._silent_audio_features()
+            return
+
+        features = self.auditory_model.process(audio_window)
+        self._last_audio_features = features
+
+        drive = sum(
+            AUDIO_BAND_WEIGHTS[name] * features.get(name, 0.0)
+            for name in AUDIO_BAND_WEIGHTS
+        )
+        drive = (
+            min(2.0, max(0.0, drive + AUDIO_ONSET_WEIGHT * features["onset"]))
+            * AUDIO_INJECTION_GAIN
+            * float(self.config.auditory_gain)
+        )
+        if drive <= 0.0:
+            return
+
+        if self._is_real:
+            targets = self._auditory_indices
+            if targets.size == 0:
+                sl = self.graph.region_slices.get("antenna")
+                if sl is not None and sl.stop > sl.start:
+                    targets = np.arange(sl.start, sl.stop)
+            if targets.size == 0:
+                # Last resort: a CSV export with no cell types/antenna region.
+                sl = self.graph.region_slices.get(OTHER_REGION)
+                if sl is not None and sl.stop > sl.start:
+                    targets = np.arange(sl.start, sl.stop)
+            if targets.size:
+                self._external_input[targets] += drive
+            return
+
+        antenna_slice = self.graph.region_slices.get("antenna")
+        if antenna_slice is not None and antenna_slice.stop > antenna_slice.start:
+            self._external_input[antenna_slice] += drive
+
     def _inject_cell_types(self, cell_types: tuple[str, ...], grid_flat: np.ndarray, *, gain: float):
         """Add ``gain * grid_flat[retinotopic_column]`` to each listed cell type."""
         if grid_flat.size == 0:
@@ -273,13 +374,19 @@ class FlyBrain:
             else:
                 self._external_input[indices] += gain * float(grid_flat.mean())
 
-    def step(self, frame_bgr: np.ndarray, sub_steps: int) -> StepStats:
+    def step(
+        self,
+        frame_bgr: np.ndarray,
+        sub_steps: int,
+        audio_window: np.ndarray | None = None,
+    ) -> StepStats:
         import time as _time
 
         t0 = _time.perf_counter()
         dt = self.dynamics._dt
 
         self._inject_vision(frame_bgr, dt)
+        self._inject_hearing(audio_window)
 
         activity = None
         for _ in range(sub_steps):
@@ -307,10 +414,13 @@ class FlyBrain:
 
         strongest, labels = self._strongest_active_connections(activity, top_k=5)
 
+        audio = self._last_audio_features
         fly_state = compute_fly_state(
             region_activity,
             active_fraction=float(active_mask.mean()),
             motion_energy_mean=self._last_motion_energy,
+            audio_level=float(audio.get("total", 0.0)),
+            audio_onset=float(audio.get("onset", 0.0)),
         )
         emotion_mix = self.emotion_tracker.update(fly_state)
 
@@ -325,6 +435,12 @@ class FlyBrain:
             motion_energy_mean=self._last_motion_energy,
             frame_process_ms=0.0,
             strongest_connection_labels=labels,
+            hearing_active=bool(self.config.hearing_enabled),
+            audio_band_levels={
+                name: float(audio.get(name, 0.0)) for name in ("low", "mid", "high")
+            },
+            audio_rms=float(audio.get("rms", 0.0)),
+            audio_onset=float(audio.get("onset", 0.0)),
             fly_state=fly_state,
             emotion_mix=emotion_mix,
             emotion_mix_frames=self.emotion_tracker.sample_count,

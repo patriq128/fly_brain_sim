@@ -61,9 +61,9 @@ class Brain3DView:
             "", position="lower_left", font_size=16, color="#ffe066", name="mood_text"
         )
         title = (
-            "Simulated Drosophila Brain - Visual Pathway Activity"
+            "Simulated Drosophila Brain - Visual + Auditory Pathway Activity"
             if graph.source == "synthetic"
-            else "FlyWire FAFB v783 - Real Connectome Activity"
+            else "FlyWire FAFB v783 - Real Connectome Activity (vision + hearing)"
         )
         self.title_actor = self.plotter.add_text(
             title,

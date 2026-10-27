@@ -19,6 +19,7 @@ from visualization.stats_panel import format_stats
 
 def _activity(**overrides):
     values = {
+        "antenna": 0.0,
         "retina": 0.0,
         "lamina": 0.0,
         "medulla": 0.0,
@@ -61,6 +62,22 @@ def test_valence_is_approach_minus_avoidance():
         motion_energy_mean=0.0,
     )
     assert state.valence == pytest.approx(state.curiosity - state.escape)
+
+
+def test_hearing_raises_arousal_and_escape():
+    quiet = compute_fly_state(
+        _activity(), active_fraction=0.1, motion_energy_mean=0.0
+    )
+    loud = compute_fly_state(
+        _activity(),
+        active_fraction=0.1,
+        motion_energy_mean=0.0,
+        audio_level=0.9,
+        audio_onset=0.8,
+    )
+    assert loud.arousal > quiet.arousal
+    assert loud.salience > quiet.salience
+    assert loud.escape > quiet.escape
 
 
 def test_all_axes_stay_in_range():

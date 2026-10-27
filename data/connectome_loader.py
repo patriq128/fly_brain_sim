@@ -52,8 +52,9 @@ Two CSV files, both referenced by `path` (a directory):
                                  sign or neurotransmitter (optional)
 
 `region` should, if present, use one of this project's region keys
-(retina, lamina, medulla, lobula, lobula_plate, central_complex,
-mushroom_body) or "other" - see brain/regions.py. If `region` is absent,
+(antenna, retina, lamina, medulla, lobula, lobula_plate, central_complex,
+mushroom_body) or "other" - see brain/regions.py. Use "antenna" for
+Johnston's-organ / auditory receptor neurons if your export includes them. If `region` is absent,
 every neuron is placed in a single "other" bucket and the visualization/
 simulation still runs, just without the region breakdown.
 
@@ -81,6 +82,7 @@ import pandas as pd
 from scipy import sparse
 
 KNOWN_REGIONS = {
+    "antenna",
     "retina",
     "lamina",
     "medulla",
